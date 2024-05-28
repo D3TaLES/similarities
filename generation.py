@@ -4,7 +4,7 @@ import multiprocessing
 from functools import partial
 from itertools import combinations
 from concurrent.futures import ThreadPoolExecutor
-from similarities.settings import *
+from settings import *
 
 from d3tales_api.D3database.d3database import D3Database
 SIM_DB = D3Database(database='random', collection_name='similarities')

@@ -3,10 +3,9 @@ import seaborn as sns
 from scipy import stats
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
-from similarities.generation import create_compare_df, get_all_d
+from generation import create_compare_df, get_all_d
 
-from similarities.settings import *
-from similarities.settings import *
+from settings import *
 
 
 # Plot Function
