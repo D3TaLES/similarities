@@ -1,60 +1,13 @@
-import os
+import tqdm
+import pymongo.errors
 import multiprocessing
 from functools import partial
-import pymongo.errors
-import tqdm
-import joblib
+from concurrent.futures import ThreadPoolExecutor
 
-import pandas as pd
-from pathlib import Path
-
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
-from rdkit.Chem import rdFingerprintGenerator
-from rdkit.DataStructs import TanimotoSimilarity, TverskySimilarity, CosineSimilarity, DiceSimilarity, SokalSimilarity, \
-    RusselSimilarity, KulczynskiSimilarity, McConnaugheySimilarity
+from settings import *
 
 from d3tales_api.D3database.d3database import D3Database
-
-BASE_DIR = Path(__file__).resolve().parent
-
-ORIG_FILE = "data_files/ocelot_d3tales_CLEAN.pkl"
-FP_FILE = "data_files/ocelot_d3tales_fps.pkl"
-SIM_FILE = "data_files/combo_sims_100perc.csv"
-FP_DICT = pd.read_pickle(os.path.join(BASE_DIR, FP_FILE)).to_dict() if os.path.isfile(os.path.join(BASE_DIR, FP_FILE)) else None
 SIM_DB = D3Database(database='random', collection_name='similarities')
-
-# Electronic Props to compare
-ELEC_PROPS = ['aie', 'aea', 'hl', 'lumo', 'homo', 's0s1']
-# Fingerprint Generators (both bit and count forms)
-FP_GENS = {
-
-    "mfpReg": rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048).GetFingerprint,
-    "mfpSCnt": rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048, countSimulation=True).GetFingerprint,
-    # "mfpCnt": rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048).GetCountFingerprint,
-
-    "rdkReg": rdFingerprintGenerator.GetRDKitFPGenerator(fpSize=2048).GetFingerprint,
-    "rdkSCnt": rdFingerprintGenerator.GetRDKitFPGenerator(fpSize=2048, countSimulation=True).GetFingerprint,
-    # "rdkCnt": rdFingerprintGenerator.GetRDKitFPGenerator(fpSize=2048).GetCountFingerprint,
-
-    "aprReg": rdFingerprintGenerator.GetAtomPairGenerator(fpSize=2048).GetFingerprint,
-    "aprSCnt": rdFingerprintGenerator.GetAtomPairGenerator(fpSize=2048, countSimulation=True).GetFingerprint,
-    # "aprCnt": rdFingerprintGenerator.GetAtomPairGenerator(fpSize=2048).GetCountFingerprint,
-
-    "ttrReg": rdFingerprintGenerator.GetTopologicalTorsionGenerator(fpSize=2048).GetFingerprint,
-    "ttrSCnt": rdFingerprintGenerator.GetTopologicalTorsionGenerator(fpSize=2048, countSimulation=True).GetFingerprint,
-    # "ttrCnt": rdFingerprintGenerator.GetTopologicalTorsionGenerator(fpSize=2048).GetCountFingerprint,
-}
-# Similarity metrics
-SIM_METRICS = {
-    "Tanimoto": TanimotoSimilarity,
-    "Cosine": CosineSimilarity,
-    # "Tversky": TverskySimilarity,  # requires alpha and beta params
-    "Dice": DiceSimilarity,
-    "Sokal": SokalSimilarity,
-    "McConnaughey": McConnaugheySimilarity,
-    "Russel": RusselSimilarity,
-    "Kulczynski": KulczynskiSimilarity,
-}
 
 
 def add_fingerprints(data_df, fp_dict=FP_GENS):
@@ -105,7 +58,7 @@ def create_all_idx():
         print("Index created for ", prop)
 
 
-def insert_db_data(_id, sim_db=None, fp_dict=None, elec_props=None, sim_metrics=None, fp_gens=None, verbose=1):
+def insert_db_data(_id, sim_db=None, fp_dict=None, elec_props=None, sim_metrics=None, fp_gens=None, verbose=1, insert=True):
     # Get reference data
     elec_props = elec_props or ELEC_PROPS
     sim_metrics = sim_metrics or SIM_METRICS
@@ -131,8 +84,22 @@ def insert_db_data(_id, sim_db=None, fp_dict=None, elec_props=None, sim_metrics=
             print(f"\tSimilarity {sim}") if verbose > 1 else None
             insert_data[f"{fp}_{sim.lower()}"] = SimCalc(fp_dict[fp][db_data["id_1"]], fp_dict[fp][db_data["id_2"]])
 
-    sim_db.coll.update_one({"_id": _id}, {"$set": insert_data})
-    print("ID {} updated with fingerprint and similarity info".format(_id)) if verbose else None
+    if insert:
+        sim_db.coll.update_one({"_id": _id}, {"$set": insert_data})
+        print("ID {} updated with fingerprint and similarity info".format(_id)) if verbose else None
+    insert_data.update({"_id": _id})
+    return insert_data
+
+
+def batch_insert_db_data(ids, batch_size=100, sim_db=None, **kwargs):
+    sim_db = sim_db or SIM_DB
+    chunks = [ids[i:i + batch_size] for i in range(0, len(ids), batch_size)]
+    for chunk in chunks:
+        insert_data = [insert_db_data(i, insert=False) for i in chunk]
+        try:
+            sim_db.coll.insert_many(insert_data, ordered=False)
+        except pymongo.errors.BulkWriteError:
+            continue
 
 
 def create_compare_df(limit=1000, sim_db=None, **kwargs):

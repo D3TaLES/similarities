@@ -1,18 +1,12 @@
-import os
 import numpy as np
-import pandas as pd
 import seaborn as sns
-from pathlib import Path
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 
-BASE_DIR = Path(__file__).resolve().parent
-
-PERCENT = 10
+from settings import *
 
 
-# @title Plot Function
-
+# Plot Function
 def quad_f(x, a, h, k):
     """
     Return a quadratic function.
@@ -99,7 +93,7 @@ def get_bin_data(x, y, df, bin_num=20, top_bin_edge=None):
 
 
 def compare_plt(x, y, df, bin_num=20, top_bin_edge=None, prop_abs=True, save=True, boundary_func=None,
-                x_i=None, **kwargs):
+                x_i=None, name_tag="",**kwargs):
     """
       Compare and plot data.
 
@@ -113,6 +107,7 @@ def compare_plt(x, y, df, bin_num=20, top_bin_edge=None, prop_abs=True, save=Tru
           save (bool, optional): Whether to save the plot.
           boundary_func (function, optional): Function to fit the boundary.
           x_i (float, optional): Lower limit for the independent variable.
+          name_tag (str, optional): output file name tag
 
       Returns:
           None
@@ -148,26 +143,29 @@ def compare_plt(x, y, df, bin_num=20, top_bin_edge=None, prop_abs=True, save=Tru
     ax.set_xlabel("{}Difference in {} values".format("Absolute " if prop_abs else "", y.split("_")[1].upper()))
     if save:
         plt.savefig(os.path.join(BASE_DIR, "plots",
-                                 f"SinglePlt{PERCENT:02d}perc_{x}_{y.strip('diff_')}{'_abs' if prop_abs else ''}.png"),
+                                 f"SinglePlt{name_tag}_{x}_{y.strip('diff_')}{'_abs' if prop_abs else ''}.png"),
                     dpi=300)
 
     return ax
 
 
-compare_df = pd.read_csv(os.path.join(BASE_DIR, "data_files", f"combo_sims_{PERCENT:02d}perc.csv"), index_col=0)
-sim_reg_cols = [c for c in compare_df.columns if "Reg_" in c]
-sim_scnt_cols = [c for c in compare_df.columns if "SCnt_" in c]
-sim_cols = sim_reg_cols + sim_scnt_cols
-prop_cols = [c for c in compare_df.columns if (c not in sim_cols and "id_" not in c)]
-print("Num Instances: ", compare_df.shape[0])
+if __name__ == "__main__":
+    percent = 10
+    compare_df = pd.read_csv(os.path.join(BASE_DIR, "data_files", f"combo_sims_{percent:02d}perc.csv"), index_col=0)
+    sim_reg_cols = [c for c in compare_df.columns if "Reg_" in c]
+    sim_scnt_cols = [c for c in compare_df.columns if "SCnt_" in c]
+    sim_cols = sim_reg_cols + sim_scnt_cols
+    prop_cols = [c for c in compare_df.columns if (c not in sim_cols and "id_" not in c)]
+    print("Num Instances: ", compare_df.shape[0])
 
-# print("Generating master regular fingerprint plots...")
-# reg_plts = sns.pairplot(compare_df, kind="hist", x_vars=sim_reg_cols, y_vars=prop_cols, dropna=True)
-# reg_plts.savefig(os.path.join(BASE_DIR, "plots", f"Sims-ElecProps_Reg_{PERCENT:02d}perc.png"), dpi=300)
-#
-# print("Generating master simulated count fingerprint plots...")
-# scnt_plts = sns.pairplot(compare_df, kind="hist", x_vars=sim_scnt_cols, y_vars=prop_cols, dropna=True)
-# scnt_plts.savefig(os.path.join(BASE_DIR, "plots", f"Sims-ElecProps_SCnt_{PERCENT:02d}perc.png"), dpi=300)
+    # print("Generating master regular fingerprint plots...")
+    # reg_plts = sns.pairplot(compare_df, kind="hist", x_vars=sim_reg_cols, y_vars=prop_cols, dropna=True)
+    # reg_plts.savefig(os.path.join(BASE_DIR, "plots", f"Sims-ElecProps_Reg_{percent:02d}perc.png"), dpi=300)
+    #
+    # print("Generating master simulated count fingerprint plots...")
+    # scnt_plts = sns.pairplot(compare_df, kind="hist", x_vars=sim_scnt_cols, y_vars=prop_cols, dropna=True)
+    # scnt_plts.savefig(os.path.join(BASE_DIR, "plots", f"Sims-ElecProps_SCnt_{percent:02d}perc.png"), dpi=300)
 
 
-compare_plt("ttrReg_cosine", "diff_homo", compare_df, top_bin_edge=0.8, boundary_func=quad_f, penalty=15)
+    compare_plt("ttrReg_cosine", "diff_homo", compare_df, top_bin_edge=0.8, boundary_func=quad_f, penalty=15,
+                name_tag=f"{percent:02d}perc")

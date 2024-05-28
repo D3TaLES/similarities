@@ -1,51 +1,5 @@
-import os
-import random
-import pandas as pd
-from pathlib import Path
 from itertools import combinations
-from rdkit.Chem import rdFingerprintGenerator
-from rdkit.DataStructs import TanimotoSimilarity, TverskySimilarity, CosineSimilarity, DiceSimilarity, SokalSimilarity, \
-    RusselSimilarity, KulczynskiSimilarity, McConnaugheySimilarity
-BASE_DIR = Path(__file__).resolve().parent
-# random.seed(10)
-
-FRACTION = 0.05
-ORIG_FILE = "data_files/ocelot_d3tales_CLEAN.pkl"
-FP_FILE = "data_files/ocelot_d3tales_fps.pkl"
-SIM_FILE = "data_files/combo_sims_{:02d}perc.csv".format(round(FRACTION*100))
-
-# Electronic Props to compare
-ELEC_PROPS = ['aie', 'aea', 'hl', 'lumo', 'homo', 's0s1']
-# Fingerprint Generators (both bit and count forms)
-FP_GENS = {
-
-  "mfpReg": rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048).GetFingerprint,
-  "mfpSCnt": rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048, countSimulation=True).GetFingerprint,
-  # "mfpCnt": rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048).GetCountFingerprint,
-
-  "rdkReg": rdFingerprintGenerator.GetRDKitFPGenerator(fpSize=2048).GetFingerprint,
-  "rdkSCnt": rdFingerprintGenerator.GetRDKitFPGenerator(fpSize=2048, countSimulation=True).GetFingerprint,
-  # "rdkCnt": rdFingerprintGenerator.GetRDKitFPGenerator(fpSize=2048).GetCountFingerprint,
-
-  "aprReg": rdFingerprintGenerator.GetAtomPairGenerator(fpSize=2048).GetFingerprint,
-  "aprSCnt": rdFingerprintGenerator.GetAtomPairGenerator(fpSize=2048, countSimulation=True).GetFingerprint,
-  # "aprCnt": rdFingerprintGenerator.GetAtomPairGenerator(fpSize=2048).GetCountFingerprint,
-
-  "ttrReg": rdFingerprintGenerator.GetTopologicalTorsionGenerator(fpSize=2048).GetFingerprint,
-  "ttrSCnt": rdFingerprintGenerator.GetTopologicalTorsionGenerator(fpSize=2048, countSimulation=True).GetFingerprint,
-  # "ttrCnt": rdFingerprintGenerator.GetTopologicalTorsionGenerator(fpSize=2048).GetCountFingerprint,
-}
-# Similarity metrics
-SIM_METRICS = {
-    "Tanimoto": TanimotoSimilarity,
-    "Cosine": CosineSimilarity,
-    # "Tversky": TverskySimilarity,  # requires alpha and beta params
-    "Dice": DiceSimilarity,
-    "Sokal": SokalSimilarity,
-    "McConnaughey": McConnaugheySimilarity,
-    "Russel": RusselSimilarity,
-    "Kulczynski": KulczynskiSimilarity,
-}
+from settings import *
 
 
 def add_fingerprints(data_df, fp_dict=FP_GENS):
@@ -56,7 +10,7 @@ def add_fingerprints(data_df, fp_dict=FP_GENS):
     return data_df
 
 
-def create_compare_df(ref_df, frac=FRACTION, elec_props=None, sim_metrics=None, fp_gens=None, random_seed=1, verbose=1):
+def create_compare_df(ref_df, frac=DATA_FRACTION, elec_props=None, sim_metrics=None, fp_gens=None, random_seed=1, verbose=1):
     # Get reference data
     elec_props = elec_props or ELEC_PROPS
     sim_metrics = sim_metrics or SIM_METRICS
@@ -103,6 +57,9 @@ def get_all_d():
 
 
 if __name__ == "__main__":
+    # import random
+    # random.seed(10)
+
     all_df = get_all_d()
     compare_df = create_compare_df(all_df)
     compare_df.to_csv(os.path.join(BASE_DIR, SIM_FILE))
