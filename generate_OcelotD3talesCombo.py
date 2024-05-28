@@ -26,6 +26,6 @@ merge_data['mol'] = merge_data.smiles.apply(lambda x: Chem.MolFromSmiles(x))
 print("Merge Data: ", merge_data.shape[0])
 print("Merge Data CLEAN: ", merge_data.dropna(axis=0).shape[0])
 
-merge_data.to_pickle("data_files/ocelot_d3tales.pkl")
-merge_data.dropna(axis=0).to_pickle("data_files/ocelot_d3tales_CLEAN.pkl")
+merge_data.to_pickle("composite_data/ocelot_d3tales.pkl")
+merge_data.dropna(axis=0).to_pickle("composite_data/ocelot_d3tales_CLEAN.pkl")
 

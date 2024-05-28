@@ -8,10 +8,13 @@ from rdkit.DataStructs import TanimotoSimilarity, TverskySimilarity, CosineSimil
 
 BASE_DIR = Path(__file__).resolve().parent
 
-DATA_FRACTION = 0.05
-ORIG_FILE = "data_files/ocelot_d3tales_CLEAN.pkl"
-FP_FILE = "data_files/ocelot_d3tales_fps.pkl"
-SIM_FILE = "data_files/combo_sims_{:02d}perc.csv".format(round(DATA_FRACTION*100))
+DATA_PERCENT = 0.05
+TOP_PERCENT = 0.10
+NUM_TRIALS = 30
+
+ORIG_FILE = "../data_files/ocelot_d3tales_CLEAN.pkl"
+FP_FILE = "../data_files/ocelot_d3tales_fps.pkl"
+SIM_FILE = "composite_data/combo_sims_{:02d}perc.csv".format(round(DATA_PERCENT * 100))
 FP_DICT = pd.read_pickle(os.path.join(BASE_DIR, FP_FILE)).to_dict() if os.path.isfile(os.path.join(BASE_DIR, FP_FILE)) else None
 
 # Electronic Props to compare
