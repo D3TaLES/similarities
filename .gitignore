@@ -1,6 +1,7 @@
 # Data files
 data_files/
 composite_data/
+db_infos.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

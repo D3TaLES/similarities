@@ -1,6 +1,9 @@
 import os
+import warnings
+
 import pandas as pd
 from pathlib import Path
+from pymongo import MongoClient
 from rdkit.Chem import rdFingerprintGenerator
 from rdkit.DataStructs import TanimotoSimilarity, TverskySimilarity, CosineSimilarity, DiceSimilarity, SokalSimilarity, \
     RusselSimilarity, KulczynskiSimilarity, McConnaugheySimilarity
@@ -51,3 +54,9 @@ SIM_METRICS = {
     "Russel": RusselSimilarity,
     "Kulczynski": KulczynskiSimilarity,
 }
+
+# Similarity Database
+try:
+    DB_COLL = MongoClient("mongodb://11.33.30.17:23771/")["random"]["similarities"]
+except Exception as e:
+    warnings.warn("Databaes connection error: ", e)
