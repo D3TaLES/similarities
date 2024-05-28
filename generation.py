@@ -4,7 +4,7 @@ import multiprocessing
 from functools import partial
 from itertools import combinations
 from concurrent.futures import ThreadPoolExecutor
-from settings import *
+from similarities.settings import *
 
 from d3tales_api.D3database.d3database import D3Database
 SIM_DB = D3Database(database='random', collection_name='similarities')
@@ -76,13 +76,14 @@ def get_incomplete_ids(ref_df, expected_num=26583):
 
 
 def add_db_idx(ref_df, skip_existing=False, id_list=None):
+    sim_db = D3Database(database='random', collection_name='similarities')
     all_ids = list(ref_df.index)
     print("Num of IDs Used: ", len(all_ids))
 
     for i in tqdm.tqdm(id_list or all_ids):
         if skip_existing:
             try:
-                SIM_DB.coll.insert_one({"_id": i + "_" + i, "id_1": i, "id_2": i})
+                sim_db.coll.insert_one({"_id": i + "_" + i, "id_1": i, "id_2": i})
             except pymongo.errors.DuplicateKeyError:
                 print("Base ID Skipped: ", i)
                 continue
@@ -92,15 +93,16 @@ def add_db_idx(ref_df, skip_existing=False, id_list=None):
             id_set = sorted([str(i), str(j)])
             insert_data.append({"_id": "_".join(id_set), "id_1": id_set[0], "id_2": id_set[1]})
         try:
-            SIM_DB.coll.insert_many(insert_data, ordered=False)
+            sim_db.coll.insert_many(insert_data, ordered=False)
         except pymongo.errors.BulkWriteError:
             continue
 
 
 def create_all_idx():
-    all_props = SIM_DB.coll.find_one({"diff_homo": {"$exists": True}}).keys()
+    sim_db = D3Database(database='random', collection_name='similarities')
+    all_props = sim_db.coll.find_one({"diff_homo": {"$exists": True}}).keys()
     for prop in [p for p in all_props if "id" not in p]:
-        SIM_DB.coll.create_index(prop)
+        sim_db.coll.create_index(prop)
         print("Index created for ", prop)
 
 
