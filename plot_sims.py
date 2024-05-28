@@ -3,7 +3,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 
-from settings import *
+from similarities.settings import *
 
 
 # Plot Function

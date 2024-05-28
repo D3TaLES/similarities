@@ -1,5 +1,5 @@
 from itertools import combinations
-from settings import *
+from similarities.settings import *
 
 
 def add_fingerprints(data_df, fp_dict=FP_GENS):
