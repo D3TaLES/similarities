@@ -14,7 +14,6 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_PERCENT = 0.01
 ANAL_PERCENT = 0.10
 TOP_PERCENT = 0.10
-NUM_TRIALS = 30
 
 ORIG_FILE = "data_files/ocelot_d3tales_CLEAN.pkl"
 FP_FILE = "data_files/ocelot_d3tales_fps.pkl"

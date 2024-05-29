@@ -236,7 +236,7 @@ def generate_kde_df(compare_df, verbose=1, anal_percent=ANAL_PERCENT, top_percen
     return area_df
 
 
-def rand_composite_analysis(all_df, num_trials=NUM_TRIALS, data_percent=DATA_PERCENT, anal_percent=ANAL_PERCENT,
+def rand_composite_analysis(all_df, num_trials=30, data_percent=DATA_PERCENT, anal_percent=ANAL_PERCENT,
                             top_percent=TOP_PERCENT, plot=True):
     avg_dfs = []
     for i in range(num_trials):
@@ -281,7 +281,7 @@ if __name__ == "__main__":
     all_d = get_all_d()
 
     # # Composite analysis
-    # rand_composite_analysis(all_d, plot=True)
+    # rand_composite_analysis(all_d, num_trials=30, plot=True)
 
     # Comparison DF
     compare_df = pd.read_csv(os.path.join(BASE_DIR, "composite_data", f"combo_sims_{DATA_PERCENT:02d}perc.csv"), index_col=0)
