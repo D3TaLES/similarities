@@ -15,8 +15,8 @@ DATA_PERCENT = 0.05
 TOP_PERCENT = 0.10
 NUM_TRIALS = 30
 
-ORIG_FILE = "../data_files/ocelot_d3tales_CLEAN.pkl"
-FP_FILE = "../data_files/ocelot_d3tales_fps.pkl"
+ORIG_FILE = "data_files/ocelot_d3tales_CLEAN.pkl"
+FP_FILE = "data_files/ocelot_d3tales_fps.pkl"
 SIM_FILE = "composite_data/combo_sims_{:02d}perc.csv".format(round(DATA_PERCENT * 100))
 FP_DICT = pd.read_pickle(os.path.join(BASE_DIR, FP_FILE)).to_dict() if os.path.isfile(os.path.join(BASE_DIR, FP_FILE)) else None
 
@@ -57,6 +57,6 @@ SIM_METRICS = {
 
 # Similarity Database
 try:
-    DB_COLL = MongoClient("mongodb://11.33.30.17:23771/")["random"]["similarities"]
+    DB_COLL = MongoClient("mongodb://10.33.30.17:23771/random")["random"]["similarities"]
 except Exception as e:
     warnings.warn("Databaes connection error: ", e)
