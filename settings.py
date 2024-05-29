@@ -11,7 +11,7 @@ from rdkit.DataStructs import TanimotoSimilarity, TverskySimilarity, CosineSimil
 
 BASE_DIR = Path(__file__).resolve().parent
 
-DATA_PERCENT = 0.05
+DATA_PERCENT = 0.01
 TOP_PERCENT = 0.10
 NUM_TRIALS = 30
 
@@ -59,4 +59,4 @@ SIM_METRICS = {
 try:
     DB_COLL = MongoClient("mongodb://11.33.30.17:23771/")["random"]["similarities"]
 except Exception as e:
-    warnings.warn("Databaes connection error: ", e)
+    warnings.warn("Database connection error: ", e)

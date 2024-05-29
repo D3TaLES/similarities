@@ -6,7 +6,6 @@ from scipy.optimize import minimize
 from similarities.generation import create_compare_df, get_all_d
 
 from similarities.settings import *
-from similarities.settings import *
 
 
 # Plot Function
@@ -211,7 +210,7 @@ def kde_integrals(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo", data_pe
         ax.text(x.max() - 0.13, y.max() - 1, f"Area: {percent_top_area * 100:.2f}%", fontsize=14)
         if save_fig:
             plt.savefig(os.path.join(BASE_DIR, "plots",
-                                     f"SingleKDEPlt{data_percent:02d}perc_top{int(top_percent * 100):02d}_{x_name}_{y_name.strip('diff_')}{'_abs' if prop_abs else ''}.png"),
+                                     f"SingleKDEPlt{int(data_percent*100):02d}perc_top{int(top_percent * 100):02d}_{x_name}_{y_name.strip('diff_')}{'_abs' if prop_abs else ''}.png"),
                         dpi=300)
         return ax
 
@@ -237,7 +236,7 @@ def generate_kde_df(compare_df, verbose=1, top_percent=TOP_PERCENT):
     return area_df
 
 
-def composite_analysis(all_df, num_trials=NUM_TRIALS, data_percent=DATA_PERCENT, top_percent=TOP_PERCENT, plot=True):
+def rand_composite_analysis(all_df, num_trials=NUM_TRIALS, data_percent=DATA_PERCENT, top_percent=TOP_PERCENT, plot=True):
     avg_dfs = []
     for i in range(num_trials):
         print("Creating data sample with random seed {}...".format(i))
@@ -281,7 +280,7 @@ if __name__ == "__main__":
     all_d = get_all_d()
 
     # # Composite analysis
-    # composite_analysis(all_d, num_trials=NUM_TRIALS, data_percent=DATA_PERCENT, top_percent=TOP_PERCENT, plot=True)
+    # rand_composite_analysis(all_d, num_trials=NUM_TRIALS, data_percent=DATA_PERCENT, top_percent=TOP_PERCENT, plot=True)
 
     # Comparison DF
     compare_df = pd.read_csv(os.path.join(BASE_DIR, "composite_data", f"combo_sims_{percent:02d}perc.csv"), index_col=0)
