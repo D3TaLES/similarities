@@ -164,7 +164,7 @@ def kde_plot(x, y, kernel):
     return ax
 
 
-def kde_integrals(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo", data_percent=1, top_percent=0.10,
+def kde_integrals(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo", anal_percent=ANAL_PERCENT, top_percent=TOP_PERCENT,
                   prop_abs=True, plot_kde=False, save_fig=True):
     """
     Compute the ratio of the kernel density estimate (KDE) integral of the top percentile data to the integral of the entire dataset.
@@ -173,7 +173,7 @@ def kde_integrals(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo", data_pe
         data_df (DataFrame): DataFrame containing the data.
         x_name (str, optional): Name of the column representing the independent variable. Default is "mfpReg_tanimoto".
         y_name (str, optional): Name of the column representing the dependent variable. Default is "diff_homo".
-        data_percent (float, optional): Percentage of the data (as decimal) to consider for KDE estimation. Default is 1.
+        anal_percent (float, optional): Percentage of the data (as decimal) to consider for KDE estimation. Default is 1.
         top_percent (float, optional): Percentage of top data (as decimal) to compare with the entire KDE. Default is 0.10.
         prop_abs (bool, optional): Whether to take the absolute value of the dependent variable. Default is True.
         plot_kde (bool, optional): Whether to plot the KDE and related information. Default is False.
@@ -185,7 +185,7 @@ def kde_integrals(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo", data_pe
     Note:
         If `plot_kde` is True, the function will also plot the KDE contour and a vertical line representing the top percentile divide. It will save the plot as an image file.
   """
-    kde_data = data_df.nlargest(round(len(data_df.index) * data_percent), x_name)
+    kde_data = data_df.nlargest(round(len(data_df.index) * anal_percent), x_name)
     if prop_abs:
         kde_data[y_name] = kde_data[y_name].apply(abs)
     # Perform the kernel density estimate
@@ -210,14 +210,14 @@ def kde_integrals(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo", data_pe
         ax.text(x.max() - 0.13, y.max() - 1, f"Area: {percent_top_area * 100:.2f}%", fontsize=14)
         if save_fig:
             plt.savefig(os.path.join(BASE_DIR, "plots",
-                                     f"SingleKDEPlt{int(data_percent*100):02d}perc_top{int(top_percent * 100):02d}_{x_name}_{y_name.strip('diff_')}{'_abs' if prop_abs else ''}.png"),
+                                     f"SingleKDEPlt{int(anal_percent*100):02d}perc_top{int(top_percent * 100):02d}_{x_name}_{y_name.strip('diff_')}{'_abs' if prop_abs else ''}.png"),
                         dpi=300)
         return ax
 
     return percent_top_area
 
 
-def generate_kde_df(compare_df, verbose=1, top_percent=TOP_PERCENT):
+def generate_kde_df(compare_df, verbose=1, anal_percent=ANAL_PERCENT, top_percent=TOP_PERCENT):
     sim_cols = [c for c in compare_df.columns if ("Reg_" in c or "SCnt_" in c)]
     sims = [s for s in sim_cols if "mcconnaughey" not in s]
     prop_cols = [c for c in compare_df.columns if (c not in sim_cols and "id_" not in c)]
@@ -227,7 +227,7 @@ def generate_kde_df(compare_df, verbose=1, top_percent=TOP_PERCENT):
     print("--> Starting KDE integral analysis.") if verbose > 0 else None
     for prop in prop_cols:
         area_df[prop] = area_df.apply(
-            lambda x: kde_integrals(compare_df, x_name=x.sim, y_name=prop, data_percent=0.10,
+            lambda x: kde_integrals(compare_df, x_name=x.sim, y_name=prop, anal_percent=anal_percent,
                                     top_percent=top_percent, save_fig=False),
             axis=1)
         print("--> Finished KDE integral analysis for {}.".format(prop)) if verbose > 1 else None
@@ -236,7 +236,8 @@ def generate_kde_df(compare_df, verbose=1, top_percent=TOP_PERCENT):
     return area_df
 
 
-def rand_composite_analysis(all_df, num_trials=NUM_TRIALS, data_percent=DATA_PERCENT, top_percent=TOP_PERCENT, plot=True):
+def rand_composite_analysis(all_df, num_trials=NUM_TRIALS, data_percent=DATA_PERCENT, anal_percent=ANAL_PERCENT,
+                            top_percent=TOP_PERCENT, plot=True):
     avg_dfs = []
     for i in range(num_trials):
         print("Creating data sample with random seed {}...".format(i))
@@ -251,7 +252,7 @@ def rand_composite_analysis(all_df, num_trials=NUM_TRIALS, data_percent=DATA_PER
                 working_df.to_csv(compare_df_csv)
             else:
                 working_df = pd.read_csv(compare_df_csv, index_col=0)
-            working_df = generate_kde_df(working_df, top_percent=top_percent, verbose=2)
+            working_df = generate_kde_df(working_df, anal_percent=anal_percent, top_percent=top_percent, verbose=2)
             working_df.to_csv(area_df_csv)
         else:
             working_df = pd.read_csv(area_df_csv, index_col=0)
@@ -280,10 +281,10 @@ if __name__ == "__main__":
     all_d = get_all_d()
 
     # # Composite analysis
-    # rand_composite_analysis(all_d, num_trials=NUM_TRIALS, data_percent=DATA_PERCENT, top_percent=TOP_PERCENT, plot=True)
+    # rand_composite_analysis(all_d, plot=True)
 
     # Comparison DF
-    compare_df = pd.read_csv(os.path.join(BASE_DIR, "composite_data", f"combo_sims_{percent:02d}perc.csv"), index_col=0)
+    compare_df = pd.read_csv(os.path.join(BASE_DIR, "composite_data", f"combo_sims_{DATA_PERCENT:02d}perc.csv"), index_col=0)
     sim_reg_cols = [c for c in compare_df.columns if "Reg_" in c]
     sim_scnt_cols = [c for c in compare_df.columns if "SCnt_" in c]
     sim_cols = sim_reg_cols + sim_scnt_cols
@@ -292,11 +293,11 @@ if __name__ == "__main__":
 
     # print("Generating master regular fingerprint plots...")
     # reg_plts = sns.pairplot(compare_df, kind="hist", x_vars=sim_reg_cols, y_vars=prop_cols, dropna=True)
-    # reg_plts.savefig(os.path.join(BASE_DIR, "plots", f"Sims-ElecProps_Reg_{percent:02d}perc.png"), dpi=300)
+    # reg_plts.savefig(os.path.join(BASE_DIR, "plots", f"Sims-ElecProps_Reg_{DATA_PERCENT:02d}perc.png"), dpi=300)
     #
     # print("Generating master simulated count fingerprint plots...")
     # scnt_plts = sns.pairplot(compare_df, kind="hist", x_vars=sim_scnt_cols, y_vars=prop_cols, dropna=True)
-    # scnt_plts.savefig(os.path.join(BASE_DIR, "plots", f"Sims-ElecProps_SCnt_{percent:02d}perc.png"), dpi=300)
+    # scnt_plts.savefig(os.path.join(BASE_DIR, "plots", f"Sims-ElecProps_SCnt_{DATA_PERCENT:02d}perc.png"), dpi=300)
 
     compare_plt("ttrReg_cosine", "diff_homo", compare_df, top_bin_edge=0.8, boundary_func=quad_f, penalty=15,
                 name_tag=f"{DATA_PERCENT:02d}perc")
