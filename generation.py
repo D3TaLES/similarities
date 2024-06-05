@@ -96,9 +96,12 @@ def add_db_idx(ref_df, skip_existing=False, id_list=None):
 
 def create_all_idx():
     all_props = DB_COLL.find_one({"diff_homo": {"$exists": True}}).keys()
-    for prop in [p for p in all_props if "id" not in p]:
+    sim_metrics = [p for p in all_props if "Reg_" in p or "SCnt" in p]
+    print(f"Creating index for {', '.join(sim_metrics)}...")
+    for prop in sim_metrics:
+        print(f"Starting index creation for {prop}...")
         DB_COLL.create_index(prop)
-        print("Index created for ", prop)
+        print("--> Success!")
 
 
 def insert_db_data(_id, db_coll=None, fp_dict=None, elec_props=None, sim_metrics=None, fp_gens=None, verbose=1, insert=True):
