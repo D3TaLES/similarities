@@ -151,21 +151,27 @@ def compare_plt(x, y, df, bin_num=20, top_bin_edge=None, prop_abs=True, save=Tru
     return ax
 
 
-def kde_plot(x, y, kernel):
+def kde_plot(x, y, kernel, plot_3d=False):
     # Contour plot
     X, Y = np.mgrid[x.min():x.max():100j, y.min():y.max():100j]
     positions = np.vstack([X.ravel(), Y.ravel()])
     Z = np.reshape(kernel(positions).T, X.shape)
     # sns.jointplot(x=x, y=y, kind='hex', bins="log", dropna=True)
-    plt.scatter(x, y, s=0.1, color='b')
-    ax = plt.gca()
-    cset = ax.contour(X, Y, Z, colors='k', levels=[0.01, 0.05, 0.1, 0.5])
-    ax.clabel(cset, inline=1, fontsize=10)
+    if plot_3d: 
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection="3d")
+        ax.plot_surface(X, Y, Z, cmap="Blues", lw=0.1, rstride=1, cstride=1, ec='k')
+        ax.set_zlabel("KDE", fontsize=10, rotation=90)
+    else: 
+        plt.scatter(x, y, s=0.1, color='b')
+        ax = plt.gca()
+        cset = ax.contour(X, Y, Z, colors='k', levels=[0.01, 0.05, 0.1, 0.5])
+        ax.clabel(cset, inline=1, fontsize=10)
     return ax
 
 
 def kde_integrals(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo", anal_percent=ANAL_PERCENT, top_percent=TOP_PERCENT,
-                  prop_abs=True, plot_kde=False, save_fig=True):
+                  prop_abs=True, plot_kde=False, plot_3d=False, save_fig=True, top_min=None):
     """
     Compute the ratio of the kernel density estimate (KDE) integral of the top percentile data to the integral of the entire dataset.
 
@@ -178,6 +184,7 @@ def kde_integrals(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo", anal_pe
         prop_abs (bool, optional): Whether to take the absolute value of the dependent variable. Default is True.
         plot_kde (bool, optional): Whether to plot the KDE and related information. Default is False.
         save_fig (bool, optional): Whether to save KDE plot. Default is True.
+        top_min (float, optional): Manual value for minimum value to compare with entire KDE. Default is None. 
 
     Returns:
         float: The ratio of the KDE integral of the top percentile data to the integral of the entire dataset.
@@ -195,26 +202,32 @@ def kde_integrals(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo", anal_pe
     kernel = stats.gaussian_kde(values, bw_method=1)
 
     # Get top entries and compare the KDE integral of that range with whole range
-    top_min = kde_data.nlargest(round(len(kde_data.index) * top_percent), x_name)[x_name].min()
+    if not top_min: 
+        top_min = kde_data.nlargest(round(len(kde_data.index) * top_percent), x_name)[x_name].min()
     total_integ = kernel.integrate_box((0, 0), (np.inf, np.inf))  # -np.inf, -np.inf
     top_integ = kernel.integrate_box((top_min, 0), (np.inf, np.inf))
     percent_top_area = top_integ / total_integ
 
     # Plot data, KDE contour, and vertical line representing top percent divide
-    if plot_kde:
-        ax = kde_plot(x, y, kernel)
-        ax.vlines(top_min, *ax.get_ylim(), colors='orange')
+    if plot_kde or plot_3d:
+        ax = kde_plot(x, y, kernel, plot_3d=plot_3d)
+        if plot_3d: 
+            yy, zz = np.meshgrid(np.linspace(*ax.get_ylim()),np.linspace(*ax.get_zlim()))
+            ax.plot_surface(yy*0 + top_min, yy, zz, alpha=0.3, color='orange')
+        else:
+            ax.vlines(top_min, *ax.get_ylim(), colors='orange')
         ax.legend(["Comparison data", f"Top {top_percent * 100}% divide "])
-        ax.set_xlabel("Similarity ({} finderprint / {} similarity score)".format(*x_name.split("_")))
-        ax.set_ylabel("{}Difference in {} values".format("Absolute " if prop_abs else "", y_name.split("_")[1].upper()))
-        ax.text(x.max() - 0.13, y.max() - 1, f"Area: {percent_top_area * 100:.2f}%", fontsize=14)
+        ax.set_xlabel("Similarity ({} fingerprint / \n{} similarity score)".format(*x_name.split("_")))
+        ax.set_ylabel("{}Difference in \n{} values".format("Absolute " if prop_abs else "", y_name.split("_")[1].upper()))
+        # ax.text(x.max() - 0.13, y.max() - 1, f"Area: {percent_top_area * 100:.2f}%", fontsize=14)
         if save_fig:
             plt.savefig(os.path.join(BASE_DIR, "plots",
-                                     f"SingleKDEPlt{int(anal_percent*100):02d}perc_top{int(top_percent * 100):02d}_{x_name}_{y_name.strip('diff_')}{'_abs' if prop_abs else ''}.png"),
+                                     f"{'3D' if plot_3d else ''}SingleKDEPlt{int(anal_percent*100):02d}perc_top{int(top_percent * 100):02d}_{x_name}_{y_name.strip('diff_')}{'_abs' if prop_abs else ''}.png"),
                         dpi=300)
         return ax
 
     return percent_top_area
+
 
 
 def generate_kde_df(compare_df, verbose=1, anal_percent=ANAL_PERCENT, top_percent=TOP_PERCENT):

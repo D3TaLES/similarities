@@ -24,7 +24,7 @@ def create_compare_df(ref_df, frac=DATA_PERCENT, elec_props=None, sim_metrics=No
     all_ids = list(ref_df.sample(frac=frac, random_state=random_seed).index)
     print("Num of IDs Used: ", len(all_ids)) if verbose > 0 else None
     with open("ids_used_{:02d}perc.txt".format(round(frac*100)), 'w') as fn:
-        fn.write(",".join(all_ids))
+        fn.write(",".join([str(i) for i in all_ids]))
     all_id_pairs = list(combinations(all_ids, 2))
     print("Num of Comps: ", len(all_id_pairs)) if verbose > 0 else None
     with open("id_pairs_{:02d}perc.txt".format(round(frac*100)), 'w') as fn:
