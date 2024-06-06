@@ -9,7 +9,9 @@ from rdkit.DataStructs import TanimotoSimilarity, TverskySimilarity, CosineSimil
     RusselSimilarity, KulczynskiSimilarity, McConnaugheySimilarity
 
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / 'data_files'
+PLOT_DIR = BASE_DIR / 'plots'
 
 DATA_PERCENT = 0.01
 ANAL_PERCENT = 0.10
