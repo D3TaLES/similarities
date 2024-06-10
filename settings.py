@@ -1,64 +1,50 @@
-import os
-import warnings
-
-import pandas as pd
 from pathlib import Path
-from pymongo import MongoClient
-from rdkit.Chem import rdFingerprintGenerator
-from rdkit.DataStructs import TanimotoSimilarity, TverskySimilarity, CosineSimilarity, DiceSimilarity, SokalSimilarity, \
-    RusselSimilarity, KulczynskiSimilarity, McConnaugheySimilarity
+from rdkit import DataStructs as rdk_d
+from rdkit.Chem import rdFingerprintGenerator as rdk_gen
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / 'data_files'
 PLOT_DIR = BASE_DIR / 'plots'
 
-DATA_PERCENT = 0.01
-ANAL_PERCENT = 0.10
-TOP_PERCENT = 0.10
+# SQLite DB
+DB_FILE = DATA_DIR / "similarities.db"
+# MongoDB
+MONGO_CONNECT = "mongodb://10.33.30.17:23771/random"
+MONGO_DB = "random"
 
-ORIG_FILE = "data_files/ocelot_d3tales_CLEAN.pkl"
-FP_FILE = "data_files/ocelot_d3tales_fps.pkl"
-SIM_FILE = "composite_data/combo_sims_{:02d}perc.csv".format(round(DATA_PERCENT * 100))
-FP_DICT = pd.read_pickle(os.path.join(BASE_DIR, FP_FILE)).to_dict() if os.path.isfile(os.path.join(BASE_DIR, FP_FILE)) else None
 
 # Electronic Props to compare
 ELEC_PROPS = ['aie', 'aea', 'hl', 'lumo', 'homo', 's0s1']
 
-# Fingerprint Generators (both bit and count forms)
+# Fingerprint Generators (both bit and simulated count forms)
 FP_GENS = {
 
-  "mfpReg": rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048).GetFingerprint,
-  "mfpSCnt": rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048, countSimulation=True).GetFingerprint,
-  # "mfpCnt": rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048).GetCountFingerprint,
+  "mfpReg": rdk_gen.GetMorganGenerator(radius=2, fpSize=2048).GetFingerprint,
+  "mfpSCnt": rdk_gen.GetMorganGenerator(radius=2, fpSize=2048, countSimulation=True).GetFingerprint,
+  # "mfpCnt": rdk_gen.GetMorganGenerator(radius=2, fpSize=2048).GetCountFingerprint,
 
-  "rdkReg": rdFingerprintGenerator.GetRDKitFPGenerator(fpSize=2048).GetFingerprint,
-  "rdkSCnt": rdFingerprintGenerator.GetRDKitFPGenerator(fpSize=2048, countSimulation=True).GetFingerprint,
-  # "rdkCnt": rdFingerprintGenerator.GetRDKitFPGenerator(fpSize=2048).GetCountFingerprint,
+  "rdkReg": rdk_gen.GetRDKitFPGenerator(fpSize=2048).GetFingerprint,
+  "rdkSCnt": rdk_gen.GetRDKitFPGenerator(fpSize=2048, countSimulation=True).GetFingerprint,
+  # "rdkCnt": rdk_gen.GetRDKitFPGenerator(fpSize=2048).GetCountFingerprint,
 
-  "aprReg": rdFingerprintGenerator.GetAtomPairGenerator(fpSize=2048).GetFingerprint,
-  "aprSCnt": rdFingerprintGenerator.GetAtomPairGenerator(fpSize=2048, countSimulation=True).GetFingerprint,
-  # "aprCnt": rdFingerprintGenerator.GetAtomPairGenerator(fpSize=2048).GetCountFingerprint,
+  "aprReg": rdk_gen.GetAtomPairGenerator(fpSize=2048).GetFingerprint,
+  "aprSCnt": rdk_gen.GetAtomPairGenerator(fpSize=2048, countSimulation=True).GetFingerprint,
+  # "aprCnt": rdk_gen.GetAtomPairGenerator(fpSize=2048).GetCountFingerprint,
 
-  "ttrReg": rdFingerprintGenerator.GetTopologicalTorsionGenerator(fpSize=2048).GetFingerprint,
-  "ttrSCnt": rdFingerprintGenerator.GetTopologicalTorsionGenerator(fpSize=2048, countSimulation=True).GetFingerprint,
-  # "ttrCnt": rdFingerprintGenerator.GetTopologicalTorsionGenerator(fpSize=2048).GetCountFingerprint,
+  "ttrReg": rdk_gen.GetTopologicalTorsionGenerator(fpSize=2048).GetFingerprint,
+  "ttrSCnt": rdk_gen.GetTopologicalTorsionGenerator(fpSize=2048, countSimulation=True).GetFingerprint,
+  # "ttrCnt": rdk_gen.GetTopologicalTorsionGenerator(fpSize=2048).GetCountFingerprint,
 }
 
 # Similarity metrics
 SIM_METRICS = {
-    "Tanimoto": TanimotoSimilarity,
-    "Cosine": CosineSimilarity,
-    # "Tversky": TverskySimilarity,  # requires alpha and beta params
-    "Dice": DiceSimilarity,
-    "Sokal": SokalSimilarity,
-    "McConnaughey": McConnaugheySimilarity,
-    "Russel": RusselSimilarity,
-    "Kulczynski": KulczynskiSimilarity,
+    "Tanimoto": rdk_d.TanimotoSimilarity,
+    "Cosine": rdk_d.CosineSimilarity,
+    # "Tversky": rdk_d.TverskySimilarity,  # requires alpha and beta params
+    "Dice": rdk_d.DiceSimilarity,
+    "Sokal": rdk_d.SokalSimilarity,
+    "McConnaughey": rdk_d.McConnaugheySimilarity,
+    "Russel": rdk_d.RusselSimilarity,
+    "Kulczynski": rdk_d.KulczynskiSimilarity,
 }
-
-# Similarity Database
-try:
-    DB_COLL = MongoClient("mongodb://10.33.30.17:23771/random")["random"]["similarities"]
-except Exception as e:
-    warnings.warn("Databaes connection error: ", e)
