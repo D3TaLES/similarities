@@ -57,6 +57,6 @@ SIM_METRICS = {
 
 # Similarity Database
 try:
-    DB_COLL = MongoClient("mongodb://10.33.30.17:23771/random")["random"]["similarities"]
+    DB_COLL = MongoClient("mongodb://10.33.30.17:23771/random")["random"]["mol_pairs"]
 except Exception as e:
     warnings.warn("Databaes connection error: ", e)
