@@ -1,71 +1,10 @@
 import tqdm
 import sqlite3
-import pandas as pd
-from rdkit import Chem
-from contextlib import closing
-from itertools import combinations
 
+from similarities.utils import *
 from similarities.settings import *
 
 
-def row_exists(conn, value, table_name="mol_pairs", pk_name="_id"):
-    # Connect to the SQLite database
-    with closing(conn.cursor()) as cursor:
-        # Prepare the SQL query
-        sql = f"SELECT EXISTS(SELECT 1 FROM {table_name} WHERE {pk_name} = ? LIMIT 1)"
-
-        # Execute the query
-        cursor.execute(sql, (value,))
-        result = cursor.fetchone()[0]
-
-        # Return True if the row exists, False otherwise
-        return result == 1
-
-
-def find_non_existing_ids(conn, ids, table_name="mol_pairs", pk_name="_id"):
-    # Connect to the SQLite database
-    with closing(conn.cursor()) as cursor:
-
-        # Prepare the SQL query to check for existence
-        placeholders = ', '.join('?' for _ in ids)
-        sql = f"SELECT {pk_name} FROM {table_name} WHERE {pk_name} IN ({placeholders})"
-
-        # Execute the query
-        cursor.execute(sql, ids)
-        existing_ids = set(row[0] for row in cursor.fetchall())
-
-        # Find IDs that do not exist in the table
-        non_existing_ids = [id_ for id_ in ids if id_ not in existing_ids]
-
-        return non_existing_ids
-
-
-def table_exists(conn, table_name):
-    """Check if a table exists in the SQLite database."""
-    with closing(conn.cursor()) as cursor:
-        query = f"SELECT name FROM sqlite_master WHERE type='table' AND name=?;"
-        cursor.execute(query, (table_name,))
-        return cursor.fetchone() is not None
-
-
-def create_text_table(conn, table_name, txt_columns=[], float_columns=[]):
-    """Create text table with _id as the primary key."""
-    with closing(conn.cursor()) as cursor:
-        if cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name=?;", (table_name,)):
-            drop_table_sql = f"DROP TABLE IF EXISTS {table_name};"
-            cursor.execute(drop_table_sql)
-            print(f"Dropped existing table {table_name}")
-
-        create_table_sql = """
-        CREATE TABLE {} (
-                _id TEXT PRIMARY KEY,
-                {}
-        );
-        """.format(table_name,
-                   ", \n\t\t".join([f"{c} TEXT" for c in txt_columns] + [f"{c} FLOAT" for c in float_columns]))
-
-        cursor.execute(create_table_sql)
-        conn.commit()
 def load_mols_db(smiles_pickle, fp_dict=FP_GENS, elec_props=ELEC_PROPS, db_file=DB_FILE, replace=False):
     table_name = "molecules"
     with closing(sqlite3.connect(db_file)) as conn:
@@ -75,17 +14,7 @@ def load_mols_db(smiles_pickle, fp_dict=FP_GENS, elec_props=ELEC_PROPS, db_file=
             create_text_table(conn, table_name, txt_columns=["smiles"] + list(fp_dict.keys()), float_columns=elec_props)
 
             # Get Dataset
-            all_d = pd.read_pickle(smiles_pickle)
-            if 'mol' not in all_d.columns:
-                if 'smiles' not in all_d.columns:
-                    raise KeyError(f'Column "smiles" not found in {smiles_pickle} columns')
-                all_d['mol'] = all_d.smiles.apply(lambda x: Chem.MolFromSmiles(x))
-            for fp_name, fpgen in fp_dict.items():
-                print(f"FP Generation Method: {fp_name}")
-                if fp_name not in all_d.columns:
-                    all_d[fp_name] = all_d.mol.apply(lambda x: ''.join(map(str, fpgen(x))))
-                else:
-                    all_d[fp_name] = all_d[fp_name].apply(lambda x: ''.join(map(str, x)))
+            all_d = generate_molecules_df(smiles_pickle, fp_dict=fp_dict)
 
             # Push to DB
             all_d[["smiles"] + list(fp_dict.keys()) + elec_props].to_sql(table_name, conn, if_exists='append', index_label='_id', index=True)

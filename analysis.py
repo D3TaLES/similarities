@@ -2,10 +2,9 @@ import os
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from rdkit import Chem
 from scipy import stats
+from pymongo import MongoClient
 import matplotlib.pyplot as plt
-# from similarities.generation import create_pair_df
 
 from similarities.settings import *
 
@@ -87,17 +86,17 @@ def kde_integrals(data_df, kde_percent=1, top_percent=0.10, x_name="mfpReg_tanim
 
 
 
-def generate_kde_df(compare_df, kde_percent, top_percent, verbose=1):
-    sim_cols = [c for c in compare_df.columns if ("Reg_" in c or "SCnt_" in c)]
+def generate_kde_df(sample_pairs_df, kde_percent, top_percent, verbose=1):
+    sim_cols = [c for c in sample_pairs_df.columns if ("Reg_" in c or "SCnt_" in c)]
     sims = [s for s in sim_cols if "mcconnaughey" not in s]
-    prop_cols = [c for c in compare_df.columns if (c not in sim_cols and "id_" not in c)]
+    prop_cols = [c for c in sample_pairs_df.columns if (c not in sim_cols and "id_" not in c)]
 
     area_df = pd.DataFrame(index=range(len(sims)), columns=[])
     area_df["sim"] = sims
     print("--> Starting KDE integral analysis.") if verbose > 0 else None
     for prop in prop_cols:
         area_df[prop] = area_df.apply(
-            lambda x: kde_integrals(compare_df, kde_percent=kde_percent, top_percent=top_percent,
+            lambda x: kde_integrals(sample_pairs_df, kde_percent=kde_percent, top_percent=top_percent,
                                     x_name=x.sim, y_name=prop, save_fig=False),
             axis=1)
         print("--> Finished KDE integral analysis for {}.".format(prop)) if verbose > 1 else None
@@ -106,29 +105,53 @@ def generate_kde_df(compare_df, kde_percent, top_percent, verbose=1):
     return area_df
 
 
-def rand_composite_analysis(all_df, data_percent, kde_percent, top_percent, num_trials=30, plot=True):
+def random_sample_nosql(x=None, y=None, limit = 1000, verbose=1,
+                        mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
+    print(f"Starting query of {limit} random docs...") if verbose else None
+    pipeline = [
+        {'$sample': {'size': limit}},  # Randomly select 'limit' number of documents
+    ]
+    if x and y:
+        pipeline.append({'$project': {v: 1 for v in [x, y] if v}})  # Include only the fields 'x' and 'y'
+    with MongoClient(mongo_uri)[mongo_db][mongo_coll] as db_coll:
+        df = pd.DataFrame(list(db_coll.aggregate(pipeline))).set_index("_id")
+    return df
+
+def random_kde_nosql(x = "mfpReg_tanimoto", y = "diff_homo", limit = 1000,
+                     kde_percent=0.10, top_percent=0.10, verbose=1, return_df=False,
+                     mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
+    df = random_sample_nosql(x=x, y=y, limit=limit, verbose=verbose,
+                             mongo_uri=mongo_uri, mongo_db=mongo_db, mongo_coll=mongo_coll)
+    print("Starting analysis...") if verbose else None
+    perc = kde_integrals(df, x_name=x, y_name=y, kde_percent=kde_percent, top_percent=top_percent, plot_kde=False)
+    return (perc, df) if return_df else perc
+
+
+def rand_composite_nosql(limit, kde_percent, top_percent, num_trials=30, plot=True, verbose=1,
+                         mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
     avg_dfs = []
-    comp_dir = BASE_DIR / "composite_data"
+    comp_dir = DATA_DIR / "composite_data"
     for i in range(num_trials):
-        print("Creating data sample with random seed {}...".format(i))
-        compare_df_csv = comp_dir / f"Combo_{int(data_percent * 100):02d}perc_Rand{i:02d}.csv"
-        area_df_csv = comp_dir / f"IntegralRatios_{int(data_percent * 100):02d}perc_top{int(top_percent * 100):02d}_Rand{i:02d}.csv"
+        print("Creating data sample with random seed {}...".format(i)) if verbose else None
+        sample_pairs_csv = comp_dir / f"Combo_{limit}limit_Rand{i:02d}.csv"
+        area_df_csv = comp_dir / f"IntegralRatios_{limit}limit_top{int(top_percent * 100):02d}_Rand{i:02d}.csv"
 
         if not os.path.isfile(area_df_csv):
-            if not os.path.isfile(compare_df_csv):
-                working_df = create_pair_df(all_df, frac=data_percent, random_seed=i, verbose=2)
-                working_df.to_csv(compare_df_csv)
+            if not os.path.isfile(sample_pairs_csv):
+                _working_df = random_sample_nosql(x=x, y=y, limit=limit, verbose=verbose,
+                             mongo_uri=mongo_uri, mongo_db=mongo_db, mongo_coll=mongo_coll)
+                _working_df.to_csv(sample_pairs_csv)
             else:
-                working_df = pd.read_csv(compare_df_csv, index_col=0)
-            working_df = generate_kde_df(working_df, kde_percent=kde_percent, top_percent=top_percent, verbose=2)
-            working_df.to_csv(area_df_csv)
+                _working_df = pd.read_csv(sample_pairs_csv, index_col=0)
+            _working_df = generate_kde_df(_working_df, kde_percent=kde_percent, top_percent=top_percent, verbose=2)
+            _working_df.to_csv(area_df_csv)
         else:
-            working_df = pd.read_csv(area_df_csv, index_col=0)
-        avg_dfs.append(pd.Series(working_df.mean(axis=1)))
+            _working_df = pd.read_csv(area_df_csv, index_col=0)
+        avg_dfs.append(pd.Series(_working_df.mean(axis=1)))
 
     avg_df = pd.concat(avg_dfs, axis=1)
     avg_df = avg_df.reindex(avg_df.max(axis=1).sort_values().index)
-    avg_df.to_csv(comp_dir / f"AvgIntegralRatios_{int(data_percent * 100):02d}perc_top{int(top_percent * 100):02d}_{num_trials:02d}trials.csv")
+    avg_df.to_csv(comp_dir / f"AvgIntegralRatios_{limit}limit_top{int(top_percent * 100):02d}_{num_trials:02d}trials.csv")
 
     if plot:
         ax = sns.scatterplot(avg_df)
@@ -138,9 +161,9 @@ def rand_composite_analysis(all_df, data_percent, kde_percent, top_percent, num_
         plt.xlabel("Similarity metric")
         plt.ylabel("Normalized average ratio of \nthe KDE integrals of the top data percentile ")
         plt.tight_layout()
-        plt.savefig(PLOT_DIR / f"AvgIntegralRatios_{int(data_percent * 100):02d}perc_top{int(top_percent * 100):02d}"
+        plt.savefig(PLOT_DIR / f"AvgIntegralRatios_{limit}limit_top{int(top_percent * 100):02d}"
                                f"_{num_trials:02d}trials.png", dpi=300)
-        print("Done. Plots saved")
+        print("Done. Plots saved") if verbose else None
 
 
 
