@@ -11,19 +11,19 @@ from similarities.settings import *
 
 def kde_plot(x, y, kernel, plot_3d=False):
     # Contour plot
-    x_grid, y_grid = np.mgrid[x.min():x.max():100j, y.min():y.max():100j]
-    positions = np.vstack([x_grid.ravel(), y_grid.ravel()])
-    z_grid = np.reshape(kernel(positions).T, x_grid.shape)
+    X, Y = np.mgrid[x.min():x.max():100j, y.min():y.max():100j]
+    positions = np.vstack([X.ravel(), Y.ravel()])
+    Z = np.reshape(kernel(positions).T, X.shape)
     # sns.jointplot(x=x, y=y, kind='hex', bins="log", dropna=True)
     if plot_3d: 
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
-        ax.plot_surface(x_grid, y_grid, z_grid, cmap="Blues", lw=0.1, rstride=1, cstride=1, ec='k')
+        ax.plot_surface(X, Y, Z, cmap="Blues", lw=0.1, rstride=1, cstride=1, ec='k')
         ax.set_zlabel("KDE", fontsize=10, rotation=90)
     else: 
         plt.scatter(x, y, s=0.1, color='b')
         ax = plt.gca()
-        cset = ax.contour(x_grid, y_grid, z_grid, colors='k', levels=[0.01, 0.05, 0.1, 0.5])
+        cset = ax.contour(X, Y, Z, colors='k', levels=[0.01, 0.05, 0.1, 0.5])
         ax.clabel(cset, inline=1, fontsize=10)
     return ax
 
@@ -105,25 +105,23 @@ def generate_kde_df(sample_pairs_df, kde_percent, top_percent, verbose=1, **kwar
     return area_df
 
 
-def random_sample_nosql(x=None, y=None, size = 1000, verbose=1, kde_percent=1.0,
+def random_sample_nosql(x=None, y=None, size = 1000, verbose=1, kde_percent=1,
                         mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
-    pipeline = [
-        {'$sample': {'size': size}},  # Randomly select 'size' number of documents
-        {'$sort': {x: -1}},  # Sort random selection 
-        {'$limit': size*kde_percent}
-    ]
-    if x and y:
-        pipeline.append({'$project': {v: 1 for v in [x, y] if v}})  # Include only the fields 'x' and 'y'
+     
+    pipeline = [{"$sample": {"size": size}}]  # Randomly select 'size' number of documents
+    pipeline.append({"$sort": {x: -1}}) if x else None   # Sort by the specified field in ascending order
+    pipeline.append({"$limit": size*kde_percent}) if kde_percent else None  # Limit to the top 'num_top_docs' documents
+    pipeline.append({'$project': {v: 1 for v in [x, y] if v}}) if (x or y) else None  # Include only the fields 'x' and 'y'
+    
     with MongoClient(mongo_uri) as client:
         print(f"Starting query to select top {size*kde_percent} of {size} random docs...") if verbose else None
-        df = pd.DataFrame(list(client[mongo_db][mongo_coll].aggregate(pipeline))).set_index("_id")
+        results = list(client[mongo_db][mongo_coll].aggregate(pipeline))
+        df = pd.DataFrame(results).set_index("_id")
     return df
 
 def random_kde_nosql(x = "mfpReg_tanimoto", y = "diff_homo", size = 1000,
-                     kde_percent=0.10, top_percent=0.10, verbose=1, return_df=False,
-                     mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
-    df = random_sample_nosql(x=x, y=y, size=size, verbose=verbose, kde_percent=kde_percent,
-                             mongo_uri=mongo_uri, mongo_db=mongo_db, mongo_coll=mongo_coll)
+                     top_percent=0.10, verbose=1, return_df=False, **kwargs):
+    df = random_sample_nosql(x=x, y=y, size=size, verbose=verbose, **kwargs)
     print("Starting analysis...") if verbose else None
     perc = kde_integrals(df, x_name=x, y_name=y, kde_percent=1, top_percent=top_percent, plot_kde=False)
     return (perc, df) if return_df else perc
@@ -140,12 +138,12 @@ def rand_composite_nosql(size, kde_percent, top_percent, num_trials=30, plot=Tru
 
         if not os.path.isfile(area_df_csv):
             if not os.path.isfile(sample_pairs_csv):
-                _working_df = random_sample_nosql(size=size, verbose=verbose, kde_percent=kde_percent,
+                _working_df = random_sample_nosql(size=size, verbose=verbose, 
                              mongo_uri=mongo_uri, mongo_db=mongo_db, mongo_coll=mongo_coll)
                 _working_df.to_csv(sample_pairs_csv)
             else:
                 _working_df = pd.read_csv(sample_pairs_csv, index_col=0)
-            _working_df = generate_kde_df(_working_df, kde_percent=1, top_percent=top_percent, verbose=2)
+            _working_df = generate_kde_df(_working_df, kde_percent=kde_percent, top_percent=top_percent, verbose=2)
             _working_df.to_csv(area_df_csv)
         else:
             _working_df = pd.read_csv(area_df_csv, index_col=0)
