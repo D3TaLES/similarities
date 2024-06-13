@@ -10,7 +10,7 @@ PLOT_DIR = BASE_DIR / 'plots'
 # SQLite DB
 DB_FILE = DATA_DIR / "similarities.db"
 # MongoDB
-MONGO_CONNECT = "mongodb://10.33.30.17:23771/random"
+MONGO_CONNECT = "mongodb://10.33.30.17:23771/"
 MONGO_DB = "random"
 
 

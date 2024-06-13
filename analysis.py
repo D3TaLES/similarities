@@ -29,14 +29,14 @@ def kde_plot(x, y, kernel, plot_3d=False):
     return ax
 
 
-def kde_integrals(data_df, anal_percent=1, top_percent=0.10, x_name="mfpReg_tanimoto", y_name="diff_homo",
-                  prop_abs=True, plot_kde=False, plot_3d=False, save_fig=True, top_min=None):
+def kde_integrals(data_df, kde_percent=1, top_percent=0.10, x_name="mfpReg_tanimoto", y_name="diff_homo",
+                  prop_abs=True, plot_kde=False, plot_3d=False, save_fig=True, top_min=None, return_kernel=False):
     """
     Compute the ratio of the kernel density estimate (KDE) integral of the top percentile data to the integral of the entire dataset.
 
     Args:
         data_df (DataFrame): DataFrame containing the data.
-        anal_percent (float, optional): Percentage of the data (as decimal) to consider for KDE estimation. Default is 1.
+        kde_percent (float, optional): Percentage of the data (as decimal) to consider for KDE estimation. Default is 1.
         top_percent (float, optional): Percentage of top data (as decimal) to compare with the entire KDE. Default is 0.10.
         x_name (str, optional): Name of the column representing the independent variable. Default is "mfpReg_tanimoto".
         y_name (str, optional): Name of the column representing the dependent variable. Default is "diff_homo".
@@ -51,7 +51,7 @@ def kde_integrals(data_df, anal_percent=1, top_percent=0.10, x_name="mfpReg_tani
     Note:
         If `plot_kde` is True, the function will also plot the KDE contour and a vertical line representing the top percentile divide. It will save the plot as an image file.
   """
-    kde_data = data_df.nlargest(round(len(data_df.index) * anal_percent), x_name)
+    kde_data = data_df.nlargest(round(len(data_df.index) * kde_percent), x_name)
     if prop_abs:
         kde_data[y_name] = kde_data[y_name].apply(abs)
     # Perform the kernel density estimate
@@ -80,16 +80,14 @@ def kde_integrals(data_df, anal_percent=1, top_percent=0.10, x_name="mfpReg_tani
         ax.set_ylabel("{}Difference in \n{} values".format("Absolute " if prop_abs else "", y_name.split("_")[1].upper()))
         # ax.text(x.max() - 0.13, y.max() - 1, f"Area: {percent_top_area * 100:.2f}%", fontsize=14)
         if save_fig:
-            plt.savefig(PLOT_DIR /f"{'3D' if plot_3d else ''}SingleKDEPlt{int(anal_percent*100):02d}perc_top{int(top_percent * 100):02d}"
+            plt.savefig(PLOT_DIR /f"{'3D' if plot_3d else ''}SingleKDEPlt{int(kde_percent*100):02d}perc_top{int(top_percent * 100):02d}"
                                   f"_{x_name}_{y_name.strip('diff_')}{'_abs' if prop_abs else ''}.png",
                         dpi=300)
-        return ax
-
-    return percent_top_area
+    return (percent_top_area, kernel) if return_kernel else percent_top_area
 
 
 
-def generate_kde_df(compare_df, anal_percent, top_percent, verbose=1):
+def generate_kde_df(compare_df, kde_percent, top_percent, verbose=1):
     sim_cols = [c for c in compare_df.columns if ("Reg_" in c or "SCnt_" in c)]
     sims = [s for s in sim_cols if "mcconnaughey" not in s]
     prop_cols = [c for c in compare_df.columns if (c not in sim_cols and "id_" not in c)]
@@ -99,7 +97,7 @@ def generate_kde_df(compare_df, anal_percent, top_percent, verbose=1):
     print("--> Starting KDE integral analysis.") if verbose > 0 else None
     for prop in prop_cols:
         area_df[prop] = area_df.apply(
-            lambda x: kde_integrals(compare_df, anal_percent=anal_percent, top_percent=top_percent,
+            lambda x: kde_integrals(compare_df, kde_percent=kde_percent, top_percent=top_percent,
                                     x_name=x.sim, y_name=prop, save_fig=False),
             axis=1)
         print("--> Finished KDE integral analysis for {}.".format(prop)) if verbose > 1 else None
@@ -108,7 +106,7 @@ def generate_kde_df(compare_df, anal_percent, top_percent, verbose=1):
     return area_df
 
 
-def rand_composite_analysis(all_df, data_percent, anal_percent, top_percent, num_trials=30, plot=True):
+def rand_composite_analysis(all_df, data_percent, kde_percent, top_percent, num_trials=30, plot=True):
     avg_dfs = []
     comp_dir = BASE_DIR / "composite_data"
     for i in range(num_trials):
@@ -122,7 +120,7 @@ def rand_composite_analysis(all_df, data_percent, anal_percent, top_percent, num
                 working_df.to_csv(compare_df_csv)
             else:
                 working_df = pd.read_csv(compare_df_csv, index_col=0)
-            working_df = generate_kde_df(working_df, anal_percent=anal_percent, top_percent=top_percent, verbose=2)
+            working_df = generate_kde_df(working_df, kde_percent=kde_percent, top_percent=top_percent, verbose=2)
             working_df.to_csv(area_df_csv)
         else:
             working_df = pd.read_csv(area_df_csv, index_col=0)
