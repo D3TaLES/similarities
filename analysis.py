@@ -113,8 +113,8 @@ def random_sample_nosql(x=None, y=None, limit = 1000, verbose=1,
     ]
     if x and y:
         pipeline.append({'$project': {v: 1 for v in [x, y] if v}})  # Include only the fields 'x' and 'y'
-    with MongoClient(mongo_uri)[mongo_db][mongo_coll] as db_coll:
-        df = pd.DataFrame(list(db_coll.aggregate(pipeline))).set_index("_id")
+    with MongoClient(mongo_uri) as client:
+        df = pd.DataFrame(list(client[mongo_db][mongo_coll].aggregate(pipeline))).set_index("_id")
     return df
 
 def random_kde_nosql(x = "mfpReg_tanimoto", y = "diff_homo", limit = 1000,

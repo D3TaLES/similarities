@@ -14,8 +14,8 @@ def load_mols_db(smiles_pickle, fp_dict=FP_GENS, mongo_uri=MONGO_CONNECT, mongo_
     all_d = generate_molecules_df(smiles_pickle, fp_dict=fp_dict)
 
     # Push to DB
-    with MongoClient(mongo_uri)[mongo_db][mongo_coll] as db_coll:
-        db_coll.insert_many(all_d.to_dict('records'))
+    with MongoClient(mongo_uri) as client:
+        client[mongo_db][mongo_coll].insert_many(all_d.to_dict('records'))
         print("Fingerprint database saved.")
     return all_d
 
@@ -23,22 +23,22 @@ def load_mols_db(smiles_pickle, fp_dict=FP_GENS, mongo_uri=MONGO_CONNECT, mongo_
 def get_incomplete_ids(ref_df, expected_num=26583, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
     all_ids = list(ref_df.index)
     incomplete_ids = []
-    with MongoClient(mongo_uri)[mongo_db][mongo_coll] as db_coll:
+    with MongoClient(mongo_uri) as client:
         for i in tqdm.tqdm(all_ids):
-            if db_coll.count_documents({'$or': [{"id_1": i}, {"id_2": i}]}) < expected_num:
+            if client[mongo_db][mongo_coll].count_documents({'$or': [{"id_1": i}, {"id_2": i}]}) < expected_num:
                 incomplete_ids.append(i)
     return incomplete_ids
 
 
 def add_db_idx(skip_existing=False, id_list=None, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB):
-    with MongoClient(mongo_uri)[mongo_db] as db_conn:
-        all_ids = list(db_conn["molecules"].distinct("_id"))
+    with MongoClient(mongo_uri) as client:
+        all_ids = list(client[mongo_db]["molecules"].distinct("_id"))
         print("Num of IDs Used: ", len(all_ids))
 
         for i in tqdm.tqdm(id_list or all_ids):
             if skip_existing:
                 try:
-                    db_conn["mol_pairs"].insert_one({"_id": i + "_" + i, "id_1": i, "id_2": i})
+                    client[mongo_db]["mol_pairs"].insert_one({"_id": i + "_" + i, "id_1": i, "id_2": i})
                 except pymongo.errors.DuplicateKeyError:
                     print("Base ID Skipped: ", i)
                     continue
@@ -48,19 +48,19 @@ def add_db_idx(skip_existing=False, id_list=None, mongo_uri=MONGO_CONNECT, mongo
                 id_set = sorted([str(i), str(j)])
                 insert_data.append({"_id": "_".join(id_set), "id_1": id_set[0], "id_2": id_set[1]})
             try:
-                db_conn["mol_pairs"].insert_many(insert_data, ordered=False)
+                client[mongo_db]["mol_pairs"].insert_many(insert_data, ordered=False)
             except pymongo.errors.BulkWriteError:
                 continue
 
 
 def create_all_idx(mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
-    with MongoClient(mongo_uri)[mongo_db][mongo_coll] as db_coll:
-        all_props = db_coll.find_one({"diff_homo": {"$exists": True}}).keys()
+    with MongoClient(mongo_uri) as client:
+        all_props = client[mongo_db][mongo_coll].find_one({"diff_homo": {"$exists": True}}).keys()
         sim_metrics = [p for p in all_props if "Reg_" in p or "SCnt" in p]
         print(f"Creating index for {', '.join(sim_metrics)}...")
         for prop in sim_metrics:
             print(f"Starting index creation for {prop}...")
-            db_coll.create_index(prop)
+            client[mongo_db][mongo_coll].create_index(prop)
             print("--> Success!")
 
 
@@ -97,11 +97,11 @@ def insert_db_data(_id, db_conn, elec_props=ELEC_PROPS, sim_metrics=SIM_METRICS,
 def batch_insert_db_data(ids, batch_size=100, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs",
                          **kwargs):
     chunks = [ids[i:i + batch_size] for i in range(0, len(ids), batch_size)]
-    with MongoClient(mongo_uri)[mongo_db] as db_conn:
+    with MongoClient(mongo_uri) as client:
         for chunk in chunks:
-            insert_data = [insert_db_data(i, db_conn, insert=False, **kwargs) for i in chunk]
+            insert_data = [insert_db_data(i, client[mongo_db], insert=False, **kwargs) for i in chunk]
             try:
-                db_conn[mongo_coll].insert_many(insert_data, ordered=False)
+                client[mongo_db][mongo_coll].insert_many(insert_data, ordered=False)
             except pymongo.errors.BulkWriteError:
                 continue
 
@@ -109,16 +109,16 @@ def batch_insert_db_data(ids, batch_size=100, mongo_uri=MONGO_CONNECT, mongo_db=
 def create_db_compare_df_parallel(limit=1000, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs",
                                   **kwargs):
     test_prop = "diff_homo"
-    with MongoClient(mongo_uri)[mongo_db] as db_conn:
-        ids = [d.get("_id") for d in db_conn[mongo_coll].find({test_prop: {"$exists": False}}, {"_id": 1}).limit(limit)]
+    with MongoClient(mongo_uri) as client:
+        ids = [d.get("_id") for d in client[mongo_db][mongo_coll].find({test_prop: {"$exists": False}}, {"_id": 1}).limit(limit)]
 
         # Use multiprocessing to parallelize the processing of database data
         while ids:
             print("Starting multiprocessing with {} CPUs".format(multiprocessing.cpu_count()))
             with ThreadPoolExecutor(max_workers=64) as executor:
-                executor.map(partial(insert_db_data, [db_conn], **kwargs), ids)
+                executor.map(partial(insert_db_data, client[mongo_db], **kwargs), ids)
             print("making next query of {}...".format(limit))
-            ids = [d["_id"] for d in db_conn[mongo_coll].find({test_prop: {"$exists": False}}, {"_id": 1}).limit(limit)]
+            ids = [d["_id"] for d in client[mongo_db][mongo_coll].find({test_prop: {"$exists": False}}, {"_id": 1}).limit(limit)]
 
 
 if __name__ == "__main__":
