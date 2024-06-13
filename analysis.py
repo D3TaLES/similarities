@@ -11,19 +11,19 @@ from similarities.settings import *
 
 def kde_plot(x, y, kernel, plot_3d=False):
     # Contour plot
-    X, Y = np.mgrid[x.min():x.max():100j, y.min():y.max():100j]
-    positions = np.vstack([X.ravel(), Y.ravel()])
-    Z = np.reshape(kernel(positions).T, X.shape)
+    x_grid, y_grid = np.mgrid[x.min():x.max():100j, y.min():y.max():100j]
+    positions = np.vstack([x_grid.ravel(), y_grid.ravel()])
+    z_grid = np.reshape(kernel(positions).T, x_grid.shape)
     # sns.jointplot(x=x, y=y, kind='hex', bins="log", dropna=True)
     if plot_3d: 
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
-        ax.plot_surface(X, Y, Z, cmap="Blues", lw=0.1, rstride=1, cstride=1, ec='k')
+        ax.plot_surface(x_grid, y_grid, z_grid, cmap="Blues", lw=0.1, rstride=1, cstride=1, ec='k')
         ax.set_zlabel("KDE", fontsize=10, rotation=90)
     else: 
         plt.scatter(x, y, s=0.1, color='b')
         ax = plt.gca()
-        cset = ax.contour(X, Y, Z, colors='k', levels=[0.01, 0.05, 0.1, 0.5])
+        cset = ax.contour(x_grid, y_grid, z_grid, colors='k', levels=[0.01, 0.05, 0.1, 0.5])
         ax.clabel(cset, inline=1, fontsize=10)
     return ax
 
@@ -97,7 +97,7 @@ def generate_kde_df(sample_pairs_df, kde_percent, top_percent, verbose=1, **kwar
     for prop in prop_cols:
         area_df[prop] = area_df.apply(
             lambda x: kde_integrals(sample_pairs_df, kde_percent=kde_percent, top_percent=top_percent,
-                                    x_name=x.sim, y_name=pro, **kwargs),
+                                    x_name=x.sim, y_name=prop, **kwargs),
             axis=1)
         print("--> Finished KDE integral analysis for {}.".format(prop)) if verbose > 1 else None
     area_df.set_index("sim", inplace=True)
@@ -105,7 +105,7 @@ def generate_kde_df(sample_pairs_df, kde_percent, top_percent, verbose=1, **kwar
     return area_df
 
 
-def random_sample_nosql(x=None, y=None, size = 1000, verbose=1, kde_percent=1,
+def random_sample_nosql(x=None, y=None, size = 1000, verbose=1, kde_percent=1.0,
                         mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
     pipeline = [
         {'$sample': {'size': size}},  # Randomly select 'size' number of documents
