@@ -85,11 +85,10 @@ def kde_integrals(data_df, kde_percent=1, top_percent=0.10, x_name="mfpReg_tanim
     return (percent_top_area, kernel) if return_kernel else percent_top_area
 
 
-
-def generate_kde_df(sample_pairs_df, kde_percent, top_percent, verbose=1, **kwargs):
+def generate_kde_df(sample_pairs_df, kde_percent, top_percent, sim_metrics=None, props=None, verbose=1, **kwargs):
     sim_cols = [c for c in sample_pairs_df.columns if ("Reg_" in c or "SCnt_" in c)]
-    sims = [s for s in sim_cols if "mcconnaughey" not in s]
-    prop_cols = [c for c in sample_pairs_df.columns if (c not in sim_cols and "id_" not in c)]
+    sims = sim_metrics or [s for s in sim_cols if "mcconnaughey" not in s]
+    prop_cols = props or [c for c in sample_pairs_df.columns if (c not in sim_cols and "id_" not in c)]
 
     area_df = pd.DataFrame(index=range(len(sims)), columns=[])
     area_df["sim"] = sims
@@ -105,21 +104,23 @@ def generate_kde_df(sample_pairs_df, kde_percent, top_percent, verbose=1, **kwar
     return area_df
 
 
-def random_sample_nosql(x=None, y=None, size = 1000, verbose=1, kde_percent=1,
+def random_sample_nosql(x=None, y=None, size=1000, verbose=1, kde_percent=1,
                         mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
-     
     pipeline = [{"$sample": {"size": size}}]  # Randomly select 'size' number of documents
-    pipeline.append({"$sort": {x: -1}}) if x else None   # Sort by the specified field in ascending order
-    pipeline.append({"$limit": size*kde_percent}) if kde_percent else None  # Limit to the top 'num_top_docs' documents
-    pipeline.append({'$project': {v: 1 for v in [x, y] if v}}) if (x or y) else None  # Include only the fields 'x' and 'y'
-    
+    pipeline.append({"$sort": {x: -1}}) if x else None  # Sort by the specified field in ascending order
+    pipeline.append(
+        {"$limit": size * kde_percent}) if kde_percent else None  # Limit to the top 'num_top_docs' documents
+    pipeline.append({'$project': {v: 1 for v in [x, y] if v}}) if (
+                x or y) else None  # Include only the fields 'x' and 'y'
+
     with MongoClient(mongo_uri) as client:
-        print(f"Starting query to select top {size*kde_percent} of {size} random docs...") if verbose else None
+        print(f"Starting query to select top {size * kde_percent} of {size} random docs...") if verbose else None
         results = list(client[mongo_db][mongo_coll].aggregate(pipeline))
         df = pd.DataFrame(results).set_index("_id")
     return df
 
-def random_kde_nosql(x = "mfpReg_tanimoto", y = "diff_homo", size = 1000,
+
+def random_kde_nosql(x="mfpReg_tanimoto", y="diff_homo", size=1000,
                      top_percent=0.10, verbose=1, return_df=False, **kwargs):
     df = random_sample_nosql(x=x, y=y, size=size, verbose=verbose, **kwargs)
     print("Starting analysis...") if verbose else None
@@ -138,8 +139,8 @@ def rand_composite_nosql(size, kde_percent, top_percent, num_trials=30, plot=Tru
 
         if not os.path.isfile(area_df_csv):
             if not os.path.isfile(sample_pairs_csv):
-                _working_df = random_sample_nosql(size=size, verbose=verbose, 
-                             mongo_uri=mongo_uri, mongo_db=mongo_db, mongo_coll=mongo_coll)
+                _working_df = random_sample_nosql(size=size, verbose=verbose,
+                                                  mongo_uri=mongo_uri, mongo_db=mongo_db, mongo_coll=mongo_coll)
                 _working_df.to_csv(sample_pairs_csv)
             else:
                 _working_df = pd.read_csv(sample_pairs_csv, index_col=0)
@@ -164,29 +165,3 @@ def rand_composite_nosql(size, kde_percent, top_percent, num_trials=30, plot=Tru
         plt.savefig(PLOT_DIR / f"AvgIntegralRatios_{size}size_{int(top_percent * 100):02d}"
                                f"_{num_trials:02d}trials.png", dpi=300)
         print("Done. Plots saved") if verbose else None
-
-
-
-if __name__ == "__main__":
-    d_percent, a_percent, t_percent = 0.10, 0.10, 0.10
-
-    # all_d = get_all_d()
-
-    # # Composite analysis
-    # rand_composite_analysis(all_d, d_percent, a_percent, t_percent, num_trials=30, plot=True)
-
-    # Comparison DF
-    compare_df = pd.read_csv(DATA_DIR / f"combo_sims_{int(d_percent*100):02d}perc.csv", index_col=0)
-    sim_reg_cols = [c for c in compare_df.columns if "Reg_" in c]
-    sim_scnt_cols = [c for c in compare_df.columns if "SCnt_" in c]
-    sim_cols = sim_reg_cols + sim_scnt_cols
-    prop_cols = [c for c in compare_df.columns if (c not in sim_cols and "id_" not in c)]
-    print("Num Instances: ", compare_df.shape[0])
-
-    # print("Generating master regular fingerprint plots...")
-    # reg_plts = sns.pairplot(compare_df, kind="hist", x_vars=sim_reg_cols, y_vars=prop_cols, dropna=True)
-    # reg_plts.savefig(PLOT_DIR / f"Sims-ElecProps_Reg_{d_percent:02d}perc.png", dpi=300)
-    #
-    # print("Generating master simulated count fingerprint plots...")
-    # scnt_plts = sns.pairplot(compare_df, kind="hist", x_vars=sim_scnt_cols, y_vars=prop_cols, dropna=True)
-    # scnt_plts.savefig(PLOT_DIR / f"Sims-ElecProps_SCnt_{d_percent:02d}perc.png", dpi=300)

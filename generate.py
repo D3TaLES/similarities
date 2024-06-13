@@ -1,12 +1,34 @@
+import os
 import tqdm
+import pandas as pd
 import pymongo.errors
+from rdkit import Chem
 import multiprocessing
 from functools import partial
 from pymongo import MongoClient
 from concurrent.futures import ThreadPoolExecutor
 
-from similarities.utils import *
+
 from similarities.settings import *
+
+def generate_molecules_df(orig_df: pd.DataFrame = None, smiles_pickle: str = None, fp_dict: dict = FP_GENS):
+    if not orig_df:
+        if not os.path.isfile(smiles_pickle):
+            raise IOError("No DF pickle file found at {}. This function requires either an original_df argument or"
+                          "a valid DF pickle file location".format(smiles_pickle))
+        orig_df = pd.read_pickle(smiles_pickle)
+
+    if 'mol' not in orig_df.columns:
+        if 'smiles' not in orig_df.columns:
+            raise KeyError(f'Column "smiles" not found in {smiles_pickle} columns')
+        orig_df['mol'] = orig_df.smiles.apply(lambda x: Chem.MolFromSmiles(x))
+    for fp_name, fpgen in fp_dict.items():
+        print(f"FP Generation Method: {fp_name}")
+        if fp_name not in orig_df.columns:
+            orig_df[fp_name] = orig_df.mol.apply(lambda x: ''.join(map(str, fpgen(x))))
+        else:
+            orig_df[fp_name] = orig_df[fp_name].apply(lambda x: ''.join(map(str, x)))
+    return orig_df
 
 
 def load_mols_db(smiles_pickle, fp_dict=FP_GENS, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="molecules"):
@@ -20,17 +42,7 @@ def load_mols_db(smiles_pickle, fp_dict=FP_GENS, mongo_uri=MONGO_CONNECT, mongo_
     return all_d
 
 
-def get_incomplete_ids(ref_df, expected_num=26583, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
-    all_ids = list(ref_df.index)
-    incomplete_ids = []
-    with MongoClient(mongo_uri) as client:
-        for i in tqdm.tqdm(all_ids):
-            if client[mongo_db][mongo_coll].count_documents({'$or': [{"id_1": i}, {"id_2": i}]}) < expected_num:
-                incomplete_ids.append(i)
-    return incomplete_ids
-
-
-def add_db_idx(skip_existing=False, id_list=None, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB):
+def add_pairs_db_idx(skip_existing=False, id_list=None, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB):
     with MongoClient(mongo_uri) as client:
         all_ids = list(client[mongo_db]["molecules"].distinct("_id"))
         print("Num of IDs Used: ", len(all_ids))
@@ -53,19 +65,8 @@ def add_db_idx(skip_existing=False, id_list=None, mongo_uri=MONGO_CONNECT, mongo
                 continue
 
 
-def create_all_idx(mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
-    with MongoClient(mongo_uri) as client:
-        all_props = client[mongo_db][mongo_coll].find_one({"diff_homo": {"$exists": True}}).keys()
-        sim_metrics = [p for p in all_props if "Reg_" in p or "SCnt" in p]
-        print(f"Creating index for {', '.join(sim_metrics)}...")
-        for prop in sim_metrics:
-            print(f"Starting index creation for {prop}...")
-            client[mongo_db][mongo_coll].create_index(prop)
-            print("--> Success!")
-
-
-def insert_db_data(_id, db_conn, elec_props=ELEC_PROPS, sim_metrics=SIM_METRICS, fp_gens=FP_GENS,
-                   verbose=1, insert=True):
+def insert_pair_data(_id, db_conn, elec_props=ELEC_PROPS, sim_metrics=SIM_METRICS, fp_gens=FP_GENS,
+                     verbose=1, insert=True):
 
     # Query database
     db_data = db_conn["mol_pairs"].find_one({"_id": _id})
@@ -94,20 +95,8 @@ def insert_db_data(_id, db_conn, elec_props=ELEC_PROPS, sim_metrics=SIM_METRICS,
     return insert_data
 
 
-def batch_insert_db_data(ids, batch_size=100, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs",
-                         **kwargs):
-    chunks = [ids[i:i + batch_size] for i in range(0, len(ids), batch_size)]
-    with MongoClient(mongo_uri) as client:
-        for chunk in chunks:
-            insert_data = [insert_db_data(i, client[mongo_db], insert=False, **kwargs) for i in chunk]
-            try:
-                client[mongo_db][mongo_coll].insert_many(insert_data, ordered=False)
-            except pymongo.errors.BulkWriteError:
-                continue
-
-
-def create_db_compare_df_parallel(limit=1000, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs",
-                                  **kwargs):
+def create_pairs_db_parallel(limit=1000, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs",
+                             **kwargs):
     test_prop = "diff_homo"
     with MongoClient(mongo_uri) as client:
         ids = [d.get("_id") for d in client[mongo_db][mongo_coll].find({test_prop: {"$exists": False}}, {"_id": 1}).limit(limit)]
@@ -116,9 +105,30 @@ def create_db_compare_df_parallel(limit=1000, mongo_uri=MONGO_CONNECT, mongo_db=
         while ids:
             print("Starting multiprocessing with {} CPUs".format(multiprocessing.cpu_count()))
             with ThreadPoolExecutor(max_workers=64) as executor:
-                executor.map(partial(insert_db_data, client[mongo_db], **kwargs), ids)
+                executor.map(partial(insert_pair_data, client[mongo_db], **kwargs), ids)
             print("making next query of {}...".format(limit))
             ids = [d["_id"] for d in client[mongo_db][mongo_coll].find({test_prop: {"$exists": False}}, {"_id": 1}).limit(limit)]
+
+
+def index_all(mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
+    with MongoClient(mongo_uri) as client:
+        all_props = client[mongo_db][mongo_coll].find_one({"diff_homo": {"$exists": True}}).keys()
+        sim_metrics = [p for p in all_props if "Reg_" in p or "SCnt" in p]
+        print(f"Creating index for {', '.join(sim_metrics)}...")
+        for prop in sim_metrics:
+            print(f"Starting index creation for {prop}...")
+            client[mongo_db][mongo_coll].create_index(prop)
+            print("--> Success!")
+
+
+def get_incomplete_ids(ref_df, expected_num=26583, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
+    all_ids = list(ref_df.index)
+    incomplete_ids = []
+    with MongoClient(mongo_uri) as client:
+        for i in tqdm.tqdm(all_ids):
+            if client[mongo_db][mongo_coll].count_documents({'$or': [{"id_1": i}, {"id_2": i}]}) < expected_num:
+                incomplete_ids.append(i)
+    return incomplete_ids
 
 
 if __name__ == "__main__":
@@ -127,9 +137,9 @@ if __name__ == "__main__":
     # all_d = load_mols_db(DATA_DIR / "ocelot_d3tales_CLEAN.pkl")
 
     # # Comparison DF
-    # compare_df = pd.read_csv(DATA_DIR / f"combo_sims_{int(d_percent*100):02d}perc.csv", index_col=0)
-    # sim_reg_cols = [c for c in compare_df.columns if "Reg_" in c]
-    # sim_scnt_cols = [c for c in compare_df.columns if "SCnt_" in c]
+    # pairs_df = pd.read_csv(DATA_DIR / f"combo_sims_{int(d_percent*100):02d}perc.csv", index_col=0)
+    # sim_reg_cols = [c for c in pairs_df.columns if "Reg_" in c]
+    # sim_scnt_cols = [c for c in pairs_df.columns if "SCnt_" in c]
     # sim_cols = sim_reg_cols + sim_scnt_cols
-    # prop_cols = [c for c in compare_df.columns if (c not in sim_cols and "id_" not in c)]
-    # print("Num Instances: ", compare_df.shape[0])
+    # prop_cols = [c for c in pairs_df.columns if (c not in sim_cols and "id_" not in c)]
+    # print("Num Instances: ", pairs_df.shape[0])

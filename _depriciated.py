@@ -1,23 +1,12 @@
-import tqdm
 import numpy as np
+import pandas as pd
 import seaborn as sns
-import pymongo.errors
-import multiprocessing
-from functools import partial
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
-from concurrent.futures import ThreadPoolExecutor
 
 from similarities.settings import *
 
-# Similarity Database
-try:
-    DB_COLL = MongoClient("mongodb://10.33.30.17:23771/random")["random"]["similarities"]
-except Exception as e:
-    warnings.warn("Databaes connection error: ", e)
 
-# FP_FILE =  DATA_DIR / "ocelot_d3tales_fps.pkl"
-# FP_DICT = pd.read_pickle(os.path.join(BASE_DIR, FP_FILE)).to_dict() if os.path.isfile(os.path.join(BASE_DIR, FP_FILE)) else None
 
 # Plot Function
 def quad_f(x, a, h, k):
@@ -160,105 +149,6 @@ def compare_plt(x, y, df, bin_num=20, top_bin_edge=None, prop_abs=True, save=Tru
 
     return ax
 
-# ------------- SIMILARITIES DATABASE --------------------
-
-def get_incomplete_ids(ref_df, expected_num=26583):
-    all_ids = list(ref_df.index)
-    incomplete_ids = []
-    for i in tqdm.tqdm(all_ids):
-        if DB_COLL.count_documents({'$or': [{"id_1": i}, {"id_2": i}]}) < expected_num:
-            incomplete_ids.append(i)
-    return incomplete_ids
-
-
-def add_db_idx(ref_df, skip_existing=False, id_list=None):
-    all_ids = list(ref_df.index)
-    print("Num of IDs Used: ", len(all_ids))
-
-    for i in tqdm.tqdm(id_list or all_ids):
-        if skip_existing:
-            try:
-                DB_COLL.insert_one({"_id": i + "_" + i, "id_1": i, "id_2": i})
-            except pymongo.errors.DuplicateKeyError:
-                print("Base ID Skipped: ", i)
-                continue
-        print("Base ID: ", i)
-        insert_data = []
-        for j in all_ids:
-            id_set = sorted([str(i), str(j)])
-            insert_data.append({"_id": "_".join(id_set), "id_1": id_set[0], "id_2": id_set[1]})
-        try:
-            DB_COLL.insert_many(insert_data, ordered=False)
-        except pymongo.errors.BulkWriteError:
-            continue
-
-
-def create_all_idx():
-    all_props = DB_COLL.find_one({"diff_homo": {"$exists": True}}).keys()
-    sim_metrics = [p for p in all_props if "Reg_" in p or "SCnt" in p]
-    print(f"Creating index for {', '.join(sim_metrics)}...")
-    for prop in sim_metrics:
-        print(f"Starting index creation for {prop}...")
-        DB_COLL.create_index(prop)
-        print("--> Success!")
-
-
-def insert_db_data(_id, db_coll=None, fp_dict=None, elec_props=None, sim_metrics=None, fp_gens=None, verbose=1, insert=True):
-    # Get reference data
-    elec_props = elec_props or ELEC_PROPS
-    sim_metrics = sim_metrics or SIM_METRICS
-    fp_gens = fp_gens or FP_GENS
-    fp_dict = fp_dict or FP_DICT
-    db_coll = db_coll or DB_COLL
-
-    # Query database
-    db_data = db_coll.find_one({"_id": _id})
-    if db_data.get("diff_" + elec_props[-1]):
-        print("SKIPPED") if verbose else None
-        return
-
-    insert_data = {}
-    # Add electronic property differences
-    for ep in elec_props:
-        insert_data["diff_" + ep] = fp_dict[ep][db_data["id_1"]] - fp_dict[ep][db_data["id_2"]]
-
-    # Add similarity metrics
-    for fp in fp_gens.keys():
-        print(f"FP Generation Method: {fp}") if verbose > 1 else None
-        for sim, SimCalc in sim_metrics.items():
-            print(f"\tSimilarity {sim}") if verbose > 1 else None
-            insert_data[f"{fp}_{sim.lower()}"] = SimCalc(fp_dict[fp][db_data["id_1"]], fp_dict[fp][db_data["id_2"]])
-
-    if insert:
-        db_coll.update_one({"_id": _id}, {"$set": insert_data})
-        print("ID {} updated with fingerprint and similarity info".format(_id)) if verbose else None
-    insert_data.update({"_id": _id})
-    return insert_data
-
-
-def batch_insert_db_data(ids, batch_size=100, db_coll=None, **kwargs):
-    db_coll = db_coll or DB_COLL
-    chunks = [ids[i:i + batch_size] for i in range(0, len(ids), batch_size)]
-    for chunk in chunks:
-        insert_data = [insert_db_data(i, insert=False) for i in chunk]
-        try:
-            db_coll.insert_many(insert_data, ordered=False)
-        except pymongo.errors.BulkWriteError:
-            continue
-
-
-def create_db_compare_df_parallel(limit=1000, db_coll=None, **kwargs):
-    db_coll = db_coll or DB_COLL
-    test_prop = "diff_homo"
-    ids = [d.get("_id") for d in db_coll.find({test_prop: {"$exists": False}}, {"_id": 1}).limit(limit)]
-
-    # Use multiprocessing to parallelize the processing of database data
-    while ids:
-        print("Starting multiprocessing with {} CPUs".format(multiprocessing.cpu_count()))
-        with ThreadPoolExecutor(max_workers=64) as executor:
-            executor.map(partial(insert_db_data, **kwargs), ids)
-        print("making next query of {}...".format(limit))
-        ids = [d["_id"] for d in db_coll.find({test_prop: {"$exists": False}}, {"_id": 1}).limit(limit)]
 
 
 if __name__ == "__main__":
