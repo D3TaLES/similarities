@@ -85,6 +85,25 @@ def kde_integrals(data_df, kde_percent=1, top_percent=0.10, x_name="mfpReg_tanim
     return (percent_top_area, kernel) if return_kernel else percent_top_area
 
 
+def find_percentile(field, percentile, total_docs=None, verbose=1,
+                    mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
+    if not total_docs: 
+        print("Starting total number of docs query...") if verbose else None
+        total_docs = collection.count_documents({})
+    if percentile < 50: 
+        sort_dir = 1 
+        percentile_idx = int(total_docs * (percentile/100))
+    else: 
+        sort_dir = -1 
+        percentile_idx = int(total_docs * ((100-percentile)/100))
+    print(f"Percentile index {percentile_idx} out of total {total_docs} documents.") if verbose else None
+
+    print("Starting sort and skip query..") if verbose else None
+    with MongoClient(mongo_uri) as client:
+        cursor = client[mongo_db][mongo_coll].find({}, {field: 1, '_id': 0}).sort(field, sort_dir).skip(percentile_idx).limit(1)
+        return list(cursor)[0][field]
+
+
 def generate_kde_df(sample_pairs_df, kde_percent, top_percent, sim_metrics=None, props=None, verbose=1, **kwargs):
     sim_cols = [c for c in sample_pairs_df.columns if ("Reg_" in c or "SCnt_" in c)]
     sims = sim_metrics or [s for s in sim_cols if "mcconnaughey" not in s]
