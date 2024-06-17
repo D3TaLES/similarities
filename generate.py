@@ -12,6 +12,18 @@ from concurrent.futures import ThreadPoolExecutor
 from similarities.settings import *
 
 def generate_molecules_df(orig_df: pd.DataFrame = None, smiles_pickle: str = None, fp_dict: dict = FP_GENS):
+    """
+    Generates a DataFrame of molecules with specified fingerprints from either an original DataFrame or a pickle file
+    containing SMILES strings.
+
+    Parameters:
+    orig_df (pd.DataFrame): Original DataFrame containing SMILES strings and/or molecular objects.
+    smiles_pickle (str): Path to a pickle file containing a DataFrame with SMILES strings.
+    fp_dict (dict): Dictionary of fingerprint generation methods.
+
+    Returns:
+    pd.DataFrame: DataFrame containing molecules with generated fingerprints.
+        """
     if not orig_df:
         if not os.path.isfile(smiles_pickle):
             raise IOError("No DF pickle file found at {}. This function requires either an original_df argument or"
@@ -32,6 +44,19 @@ def generate_molecules_df(orig_df: pd.DataFrame = None, smiles_pickle: str = Non
 
 
 def load_mols_db(smiles_pickle, fp_dict=FP_GENS, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="molecules"):
+    """
+    Loads molecules from a SMILES pickle file, generates fingerprints, and stores them in a MongoDB database.
+
+    Parameters:
+    smiles_pickle (str): Path to a pickle file containing a DataFrame with SMILES strings.
+    fp_dict (dict): Dictionary of fingerprint generation methods.
+    mongo_uri (str): MongoDB connection URI.
+    mongo_db (str): MongoDB database name.
+    mongo_coll (str): MongoDB collection name for molecules.
+
+    Returns:
+    pd.DataFrame: DataFrame containing molecules with generated fingerprints.
+    """
     # Get Dataset
     all_d = generate_molecules_df(smiles_pickle, fp_dict=fp_dict)
 
@@ -43,6 +68,15 @@ def load_mols_db(smiles_pickle, fp_dict=FP_GENS, mongo_uri=MONGO_CONNECT, mongo_
 
 
 def add_pairs_db_idx(skip_existing=False, id_list=None, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB):
+    """
+    Adds pairs of molecule IDs to a MongoDB collection, ensuring unique combinations.
+
+    Parameters:
+    skip_existing (bool): If True, skips pairs that already exist. Default is False.
+    id_list (list): List of molecule IDs to create pairs from. If None, uses all IDs from "molecules" collection.
+    mongo_uri (str): MongoDB connection URI.
+    mongo_db (str): MongoDB database name.
+    """
     with MongoClient(mongo_uri) as client:
         all_ids = list(client[mongo_db]["molecules"].distinct("_id"))
         print("Num of IDs Used: ", len(all_ids))
@@ -67,7 +101,21 @@ def add_pairs_db_idx(skip_existing=False, id_list=None, mongo_uri=MONGO_CONNECT,
 
 def insert_pair_data(_id, db_conn, elec_props=ELEC_PROPS, sim_metrics=SIM_METRICS, fp_gens=FP_GENS,
                      verbose=1, insert=True):
+    """
+    Inserts electronic properties and similarity metrics for a pair of molecules into a MongoDB collection.
 
+    Parameters:
+    _id (str): ID of the pair of molecules.
+    db_conn (MongoClient): MongoDB client instance connected to the database.
+    elec_props (list): List of electronic properties to calculate differences.
+    sim_metrics (dict): Dictionary of similarity metrics to calculate.
+    fp_gens (dict): Dictionary of fingerprint generation methods.
+    verbose (int): Verbosity level (0 = silent, 1 = minimal output, 2 = detailed output).
+    insert (bool): If True, inserts data into MongoDB collection. Default is True.
+
+    Returns:
+    dict: Inserted data dictionary if `insert` is False, otherwise None.
+    """
     # Query database
     db_data = db_conn["mol_pairs"].find_one({"_id": _id})
     id_1_dict = db_conn["molecules"].find_one({"_id": db_data["id_1"]})
@@ -97,6 +145,16 @@ def insert_pair_data(_id, db_conn, elec_props=ELEC_PROPS, sim_metrics=SIM_METRIC
 
 def create_pairs_db_parallel(limit=1000, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs",
                              **kwargs):
+    """
+    Creates pairs of molecule IDs and calculates electronic properties and similarity metrics in parallel using multiprocessing.
+
+    Parameters:
+    limit (int): Limit of pairs to process in each query.
+    mongo_uri (str): MongoDB connection URI.
+    mongo_db (str): MongoDB database name.
+    mongo_coll (str): MongoDB collection name. Default is "mol_pairs".
+    **kwargs: Additional keyword arguments passed to `insert_pair_data`.
+    """
     test_prop = "diff_homo"
     with MongoClient(mongo_uri) as client:
         ids = [d.get("_id") for d in client[mongo_db][mongo_coll].find({test_prop: {"$exists": False}}, {"_id": 1}).limit(limit)]
@@ -111,6 +169,14 @@ def create_pairs_db_parallel(limit=1000, mongo_uri=MONGO_CONNECT, mongo_db=MONGO
 
 
 def index_all(mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
+    """
+    Creates indexes for specific properties in a MongoDB collection.
+
+    Parameters:
+    mongo_uri (str): MongoDB connection URI.
+    mongo_db (str): MongoDB database name.
+    mongo_coll (str): MongoDB collection name. Default is "mol_pairs".
+    """
     with MongoClient(mongo_uri) as client:
         all_props = client[mongo_db][mongo_coll].find_one({"diff_homo": {"$exists": True}}).keys()
         sim_metrics = [p for p in all_props if "Reg_" in p or "SCnt" in p]
@@ -122,6 +188,19 @@ def index_all(mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"
 
 
 def get_incomplete_ids(ref_df, expected_num=26583, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
+    """
+    Retrieves IDs from a reference DataFrame that have fewer documents associated with them than expected in a MongoDB collection.
+
+    Parameters:
+    ref_df (DataFrame): Reference DataFrame containing index IDs to check.
+    expected_num (int): Expected number of associated documents for each ID. Default is 26583.
+    mongo_uri (str): MongoDB connection URI.
+    mongo_db (str): MongoDB database name.
+    mongo_coll (str): MongoDB collection name. Default is "mol_pairs".
+
+    Returns:
+    list: List of IDs from `ref_df` that have fewer associated documents than `expected_num`.
+    """
     all_ids = list(ref_df.index)
     incomplete_ids = []
     with MongoClient(mongo_uri) as client:
