@@ -8,8 +8,8 @@ from functools import partial
 from pymongo import MongoClient
 from concurrent.futures import ThreadPoolExecutor
 
-
 from similarities.settings import *
+
 
 def generate_molecules_df(orig_df: pd.DataFrame = None, smiles_pickle: str = None, fp_dict: dict = FP_GENS):
     """
@@ -58,7 +58,9 @@ def load_mols_db(smiles_pickle, fp_dict=FP_GENS, mongo_uri=MONGO_CONNECT, mongo_
     pd.DataFrame: DataFrame containing molecules with generated fingerprints.
     """
     # Get Dataset
-    all_d = generate_molecules_df(smiles_pickle, fp_dict=fp_dict)
+    all_d = generate_molecules_df(smiles_pickle=smiles_pickle, fp_dict=fp_dict)
+    all_d.drop(columns=['mol'], inplace=True)
+    all_d["_id"] = all_d.index
 
     # Push to DB
     with MongoClient(mongo_uri) as client:
@@ -67,12 +69,11 @@ def load_mols_db(smiles_pickle, fp_dict=FP_GENS, mongo_uri=MONGO_CONNECT, mongo_
     return all_d
 
 
-def add_pairs_db_idx(skip_existing=False, id_list=None, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB):
+def add_pairs_db_idx(id_list=None, new_ids=None, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB):
     """
     Adds pairs of molecule IDs to a MongoDB collection, ensuring unique combinations.
 
     Parameters:
-    skip_existing (bool): If True, skips pairs that already exist. Default is False.
     id_list (list): List of molecule IDs to create pairs from. If None, uses all IDs from "molecules" collection.
     mongo_uri (str): MongoDB connection URI.
     mongo_db (str): MongoDB database name.
@@ -82,21 +83,24 @@ def add_pairs_db_idx(skip_existing=False, id_list=None, mongo_uri=MONGO_CONNECT,
         print("Num of IDs Used: ", len(all_ids))
 
         for i in tqdm.tqdm(id_list or all_ids):
-            if skip_existing:
-                try:
-                    client[mongo_db]["mol_pairs"].insert_one({"_id": i + "_" + i, "id_1": i, "id_2": i})
-                except pymongo.errors.DuplicateKeyError:
-                    print("Base ID Skipped: ", i)
-                    continue
-            print("Base ID: ", i)
+            # Generate insert data
             insert_data = []
             for j in all_ids:
+                if i == j:
+                    continue
+                if new_ids:
+                    if (i not in new_ids) and (j not in new_ids):
+                        continue
                 id_set = sorted([str(i), str(j)])
                 insert_data.append({"_id": "_".join(id_set), "id_1": id_set[0], "id_2": id_set[1]})
-            try:
-                client[mongo_db]["mol_pairs"].insert_many(insert_data, ordered=False)
-            except pymongo.errors.BulkWriteError:
-                continue
+
+            # Insert ids into database
+            if insert_data:
+                try:
+                    print("Inserting {} documents...".format(len(insert_data)))
+                    client[mongo_db]["mol_pairs"].insert_many(insert_data, ordered=False)
+                except pymongo.errors.BulkWriteError:
+                    continue
 
 
 def insert_pair_data(_id, db_conn, elec_props=ELEC_PROPS, sim_metrics=SIM_METRICS, fp_gens=FP_GENS,
@@ -216,6 +220,8 @@ if __name__ == "__main__":
     # all_d = load_mols_db(DATA_DIR / "ocelot_d3tales_CLEAN.pkl")
 
     # # Comparison DF
+    new_ids = list(pd.read_json(DATA_DIR / "new_ids.json", typ="series").index)
+    add_pairs_db_idx(new_ids=new_ids)
     # pairs_df = pd.read_csv(DATA_DIR / f"combo_sims_{int(d_percent*100):02d}perc.csv", index_col=0)
     # sim_reg_cols = [c for c in pairs_df.columns if "Reg_" in c]
     # sim_scnt_cols = [c for c in pairs_df.columns if "SCnt_" in c]

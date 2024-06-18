@@ -82,7 +82,7 @@ def load_mols_db(smiles_pickle, fp_dict=FP_GENS, elec_props=ELEC_PROPS, db_file=
             create_text_table(conn, table_name, txt_columns=["smiles"] + list(fp_dict.keys()), float_columns=elec_props)
 
             # Get Dataset
-            all_d = generate_molecules_df(smiles_pickle, fp_dict=fp_dict)
+            all_d = generate_molecules_df(smiles_pickle=smiles_pickle, fp_dict=fp_dict)
 
             # Push to DB
             all_d[["smiles"] + list(fp_dict.keys()) + elec_props].to_sql(table_name, conn, if_exists='append', index_label='_id', index=True)
