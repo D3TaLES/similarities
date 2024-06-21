@@ -1,5 +1,6 @@
 import os
 import tqdm
+import random
 import pandas as pd
 import pymongo.errors
 from rdkit import Chem
@@ -69,7 +70,7 @@ def load_mols_db(smiles_pickle, fp_dict=FP_GENS, mongo_uri=MONGO_CONNECT, mongo_
     return all_d
 
 
-def add_pairs_db_idx(id_list=None, new_ids=None, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB):
+def add_pairs_db_idx(id_list=None, new_ids=None, shuffle=False, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB):
     """
     Adds pairs of molecule IDs to a MongoDB collection, ensuring unique combinations.
 
@@ -80,7 +81,8 @@ def add_pairs_db_idx(id_list=None, new_ids=None, mongo_uri=MONGO_CONNECT, mongo_
     """
     with MongoClient(mongo_uri) as client:
         all_ids = list(client[mongo_db]["molecules"].distinct("_id"))
-        print("Num of IDs Used: ", len(all_ids))
+        random.shuffle(all_ids) if shuffle else None
+        print("Num of IDs Used: ", len(all_ids), " SHUFFLED" if shuffle else "")
 
         for i in tqdm.tqdm(id_list or all_ids):
             # Generate insert data

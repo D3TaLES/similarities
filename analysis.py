@@ -253,9 +253,10 @@ def rand_composite_nosql(size, kde_percent, top_percent, num_trials=30, plot=Tru
 
     # Iterate through multiple trials
     for i in range(num_trials):
+        trial_name = f"{size}size_{int(kde_percent * 100):02d}kde_{int(top_percent * 100):02d}top_Rand{i:02d}"
         print("Creating data sample with random seed {}...".format(i)) if verbose else None
         sample_pairs_csv = comp_dir / f"Combo_{size}size_{i:02d}.csv"
-        area_df_csv = comp_dir / f"IntegralRatios_{size}size_{int(top_percent * 100):02d}_Rand{i:02d}.csv"
+        area_df_csv = comp_dir / f"IntegralRatios_{trial_name}.csv"
 
         # Check if the area_df_csv file exists
         if not os.path.isfile(area_df_csv):
@@ -283,7 +284,7 @@ def rand_composite_nosql(size, kde_percent, top_percent, num_trials=30, plot=Tru
     avg_df = avg_df.reindex(avg_df.max(axis=1).sort_values().index)
 
     # Save avg_df to CSV
-    avg_df.to_csv(comp_dir / f"AvgIntegralRatios_{size}size_{int(top_percent * 100):02d}_{num_trials:02d}trials.csv")
+    avg_df.to_csv(comp_dir / f"AvgIntegralRatios_{trial_name}.csv")
 
     # Plotting if plot=True
     if plot:
@@ -294,6 +295,6 @@ def rand_composite_nosql(size, kde_percent, top_percent, num_trials=30, plot=Tru
         plt.xlabel("Similarity metric")
         plt.ylabel("Normalized average ratio of \nthe KDE integrals of the top data percentile ")
         plt.tight_layout()
-        plt.savefig(PLOT_DIR / f"AvgIntegralRatios_{size}size_{int(top_percent * 100):02d}"
-                               f"_{num_trials:02d}trials.png", dpi=300)
+        plt.savefig(PLOT_DIR / f"AvgIntegralRatios_{size}size_{int(kde_percent * 100):02d}kde_"
+                               f"{int(top_percent * 100):02d}top_{num_trials:02d}trials.png", dpi=300)
         print("Done. Plots saved") if verbose else None
