@@ -100,7 +100,7 @@ def kde_integrals(data_df, kde_percent=1, top_percent=0.10, x_name="mfpReg_tanim
 
 
 def find_percentile(field, percentile, total_docs=None, verbose=1,
-                    mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
+                    mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll=MONGO_PAIRS_COLL):
     """
     Finds the value at a specified percentile for a given field in a MongoDB collection.
 
@@ -111,7 +111,7 @@ def find_percentile(field, percentile, total_docs=None, verbose=1,
     verbose (int, optional): Verbosity level for logging progress and debug information. Default is 1.
     mongo_uri (str): MongoDB connection URI.
     mongo_db (str): MongoDB database name.
-    mongo_coll (str): MongoDB collection name. Default is "mol_pairs".
+    mongo_coll (str): MongoDB collection name. Default is MONGO_PAIRS_COLL.
 
     Returns:
     float: The value at the specified percentile for the given field.
@@ -175,7 +175,7 @@ def generate_kde_df(sample_pairs_df, kde_percent, top_percent, sim_metrics=None,
 
 
 def random_sample_nosql(x=None, y=None, size=1000, verbose=1, kde_percent=1,
-                        mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
+                        mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll=MONGO_PAIRS_COLL):
     """
     Retrieves a random sample of documents from a MongoDB collection, with options to sort, limit, and project specific fields.
 
@@ -187,7 +187,7 @@ def random_sample_nosql(x=None, y=None, size=1000, verbose=1, kde_percent=1,
     kde_percent (float, optional): Proportion of sampled documents to include in the final output. Default is 1.
     mongo_uri (str): MongoDB connection URI.
     mongo_db (str): MongoDB database name.
-    mongo_coll (str): MongoDB collection name. Default is "mol_pairs".
+    mongo_coll (str): MongoDB collection name. Default is MONGO_PAIRS_COLL.
 
     Returns:
     pd.DataFrame: DataFrame containing the sampled documents, indexed by MongoDB's `_id` field.
@@ -232,7 +232,7 @@ def random_kde_nosql(x="mfpReg_tanimoto", y="diff_homo", size=1000,
 
 
 def rand_composite_nosql(size, kde_percent, top_percent, num_trials=30, plot=True, verbose=1,
-                         mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
+                         mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll=MONGO_PAIRS_COLL):
     """
     Performs a composite analysis by sampling multiple datasets, applying KDE analysis, and aggregating results.
 
@@ -245,7 +245,7 @@ def rand_composite_nosql(size, kde_percent, top_percent, num_trials=30, plot=Tru
     verbose (int, optional): Verbosity level for logging progress and debug information. Default is 1.
     mongo_uri (str): MongoDB connection URI.
     mongo_db (str): MongoDB database name.
-    mongo_coll (str): MongoDB collection name. Default is "mol_pairs".
+    mongo_coll (str): MongoDB collection name. Default is MONGO_PAIRS_COLL.
 
     """
     avg_dfs = []
