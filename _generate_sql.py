@@ -161,7 +161,7 @@ def create_pair_db(db_file=DB_FILE, elec_props=ELEC_PROPS, sim_metrics=SIM_METRI
                         for sim, SimCalc in sim_metrics.items():
                             print(f"\tSimilarity {sim}") if verbose > 1 else None
                             [[fp1], [fp2]] = cursor.execute(f"SELECT {ep} FROM molecules WHERE id IN ('{id_1}', '{id_2}')").fetchall()[0]
-                            pair_dict[f"{fp}_{sim.lower()}"] = SimCalc( list(map(int, fp1)),  list(map(int, fp2)))
+                            pair_dict[f"{fp}_{sim.lower()}"] = SimCalc(list(map(int, fp1)),  list(map(int, fp2)))
 
                     sql = 'INSERT INTO {} ({}) VALUES ({})'.format(table_name, ', '.join(pair_dict.keys()),
                                                                    ', '.join('?' * len(pair_dict)))

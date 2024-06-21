@@ -69,12 +69,42 @@ def load_mols_db(smiles_pickle, fp_dict=FP_GENS, mongo_uri=MONGO_CONNECT, mongo_
     return all_d
 
 
-def add_pairs_db_idx(id_list=None, new_ids=None, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB):
+def add_new_pairs_db_idx(new_ids, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB):
     """
     Adds pairs of molecule IDs to a MongoDB collection, ensuring unique combinations.
 
     Parameters:
-    id_list (list): List of molecule IDs to create pairs from. If None, uses all IDs from "molecules" collection.
+    new_ids (list):
+    mongo_uri (str): MongoDB connection URI.
+    mongo_db (str): MongoDB database name.
+    """
+    with MongoClient(mongo_uri) as client:
+        all_ids = list(client[mongo_db]["molecules"].distinct("_id"))
+        old_ids = [i for i in all_ids if i not in new_ids]
+        print("Num of IDs Used: ", len(all_ids))
+
+        for i_1, id_1 in tqdm.tqdm(enumerate(new_ids)):
+            # Generate insert data with new ids and old ids
+            id_sets = []
+            for id_2 in [id_ for i_2, id_ in enumerate(new_ids) if i_2 > i_1] + old_ids:
+                id_sets.append(sorted([str(id_1), str(id_2)]))
+
+            insert_data = [{"_id": "_".join(s), "id_1": s[0], "id_2": s[1]} for s in id_sets]
+
+            # Insert ids into database
+            if insert_data:
+                try:
+                    print("Inserting {} documents...".format(len(insert_data)))
+                    client[mongo_db]["mol_pairs"].insert_many(insert_data, ordered=False)
+                except pymongo.errors.BulkWriteError:
+                    continue
+
+
+def add_pairs_db_idx(mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB):
+    """
+    Adds pairs of molecule IDs to a MongoDB collection, ensuring unique combinations.
+
+    Parameters:
     mongo_uri (str): MongoDB connection URI.
     mongo_db (str): MongoDB database name.
     """
@@ -82,16 +112,11 @@ def add_pairs_db_idx(id_list=None, new_ids=None, mongo_uri=MONGO_CONNECT, mongo_
         all_ids = list(client[mongo_db]["molecules"].distinct("_id"))
         print("Num of IDs Used: ", len(all_ids))
 
-        for i in tqdm.tqdm(id_list or all_ids):
+        for i_1, id_1 in tqdm.tqdm(enumerate(all_ids)):
             # Generate insert data
             insert_data = []
-            for j in all_ids:
-                if i == j:
-                    continue
-                if new_ids:
-                    if (i not in new_ids) and (j not in new_ids):
-                        continue
-                id_set = sorted([str(i), str(j)])
+            for id_2 in [id_ for i_2, id_ in enumerate(all_ids) if i_2 > i_1]:
+                id_set = sorted([str(id_1), str(id_2)])
                 insert_data.append({"_id": "_".join(id_set), "id_1": id_set[0], "id_2": id_set[1]})
 
             # Insert ids into database
@@ -134,12 +159,12 @@ def insert_pair_data(_id, db_conn, elec_props=ELEC_PROPS, sim_metrics=SIM_METRIC
         insert_data["diff_" + ep] = id_1_dict[ep] - id_2_dict[ep]
 
     # Add similarity metrics
+    print(_id)
     for fp in fp_gens.keys():
         print(f"FP Generation Method: {fp}") if verbose > 1 else None
         for sim, SimCalc in sim_metrics.items():
             print(f"\tSimilarity {sim}") if verbose > 1 else None
-            insert_data[f"{fp}_{sim.lower()}"] = SimCalc(id_1_dict[fp], id_2_dict[fp])
-
+            insert_data[f"{fp}_{sim.lower()}"] = SimCalc(list(map(int, id_1_dict[fp])), list(map(int, id_2_dict[fp])))
     if insert:
         db_conn["mol_pairs"].update_one({"_id": _id}, {"$set": insert_data})
         print("ID {} updated with fingerprint and similarity info".format(_id)) if verbose else None
@@ -167,7 +192,7 @@ def create_pairs_db_parallel(limit=1000, mongo_uri=MONGO_CONNECT, mongo_db=MONGO
         while ids:
             print("Starting multiprocessing with {} CPUs".format(multiprocessing.cpu_count()))
             with ThreadPoolExecutor(max_workers=64) as executor:
-                executor.map(partial(insert_pair_data, client[mongo_db], **kwargs), ids)
+                executor.map(partial(insert_pair_data, db_conn=client[mongo_db], **kwargs), ids)
             print("making next query of {}...".format(limit))
             ids = [d["_id"] for d in client[mongo_db][mongo_coll].find({test_prop: {"$exists": False}}, {"_id": 1}).limit(limit)]
 
@@ -220,11 +245,13 @@ if __name__ == "__main__":
     # all_d = load_mols_db(DATA_DIR / "ocelot_d3tales_CLEAN.pkl")
 
     # # Comparison DF
-    new_ids = list(pd.read_json(DATA_DIR / "new_ids.json", typ="series").index)
-    add_pairs_db_idx(new_ids=new_ids)
+    # new_ids = list(pd.read_json(DATA_DIR / "new_ids.json", typ="series").index)
+    # add_new_pairs_db_idx(new_ids=new_ids)
     # pairs_df = pd.read_csv(DATA_DIR / f"combo_sims_{int(d_percent*100):02d}perc.csv", index_col=0)
     # sim_reg_cols = [c for c in pairs_df.columns if "Reg_" in c]
     # sim_scnt_cols = [c for c in pairs_df.columns if "SCnt_" in c]
     # sim_cols = sim_reg_cols + sim_scnt_cols
     # prop_cols = [c for c in pairs_df.columns if (c not in sim_cols and "id_" not in c)]
     # print("Num Instances: ", pairs_df.shape[0])
+
+    create_pairs_db_parallel()
