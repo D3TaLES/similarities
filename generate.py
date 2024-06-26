@@ -198,6 +198,7 @@ def insert_pair_data(_id, elec_props=ELEC_PROPS, sim_metrics=SIM_METRICS, fp_gen
                 fp2.FromBase64(id_2_dict[fp])
                 similarity = SimCalc(fp1, fp2)
                 if sim_min is not None and metric_name==sim_min_metric and (similarity < sim_min):
+                    print(f"{_id} insertion skipped because {sim_min_metric} value {similarity} < {sim_min}")
                     return None
                 insert_data[f"{metric_name}"] = similarity
         if insert:
@@ -223,7 +224,7 @@ def create_pairs_db_parallel(limit=10000, mongo_uri=MONGO_CONNECT, mongo_db=MONG
     with MongoClient(mongo_uri) as client:
         query = {test_prop: {"$exists": False}}
         if "sim_min" in kwargs:
-            low_prop_ids = [d["_id"] for d in client["local"]["low_props"].find({}).limit(500000)]
+            low_prop_ids = [d["_id"] for d in client[mongo_db]["low_props"].find({}).limit(500000)]
             query.update({"_id": {"$nin": low_prop_ids}})
         ids = [d.get("_id") for d in client[mongo_db][mongo_coll].find(query, {"_id": 1}).limit(limit)]
 
@@ -255,7 +256,7 @@ def create_pairs_db_newID(new_ids, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, m
         for i_1, id_1 in tqdm.tqdm(enumerate(new_ids)):
             # Generate insert data with new ids and old ids
 
-            already_updated = client["local"]["updated_ids"].find_one({"_id": id_1})
+            already_updated = client[mongo_db]["updated_ids"].find_one({"_id": id_1})
             if already_updated:
                 print("Already updated ", id_1)
                 continue
@@ -268,7 +269,7 @@ def create_pairs_db_newID(new_ids, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, m
             with ThreadPoolExecutor(max_workers=64) as executor:
                 executor.map(partial(insert_pair_data, insert=True, **kwargs), ids)
 
-                client["local"]["updated_ids"].insert_one({"_id": id_1}, {})
+                client[mongo_db]["updated_ids"].insert_one({"_id": id_1}, {})
                 print(f"\n--------------------------\nAll pairs with {id_1} updated.\n--------------------------\n")
 
 
