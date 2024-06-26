@@ -223,18 +223,16 @@ def create_pairs_db_parallel(limit=10000, mongo_uri=MONGO_CONNECT, mongo_db=MONG
     with MongoClient(mongo_uri) as client:
         query = {test_prop: {"$exists": False}}
         if "sim_min" in kwargs:
-            with MongoClient("mongodb://localhost:27017") as low_client:
-                low_prop_ids = [d["_id"] for d in low_client["local"]["low_props"].find({}).limit(500000)]
+            low_prop_ids = [d["_id"] for d in client["local"]["low_props"].find({}).limit(500000)]
             query.update({"_id": {"$nin": low_prop_ids}})
         ids = [d.get("_id") for d in client[mongo_db][mongo_coll].find(query, {"_id": 1}).limit(limit)]
 
-    # Use multiprocessing to parallelize the processing of database data
-    while ids:
-        print(f"Starting multiprocessing with {multiprocessing.cpu_count()} CPUs to insert props for {len(ids)} ids")
-        with ThreadPoolExecutor(max_workers=64) as executor:
-            executor.map(partial(insert_pair_data, **kwargs), ids)
-        print("making next query of {}...".format(limit))
-        with MongoClient(mongo_uri) as client:
+        # Use multiprocessing to parallelize the processing of database data
+        while ids:
+            print(f"Starting multiprocessing with {multiprocessing.cpu_count()} CPUs to insert props for {len(ids)} ids")
+            with ThreadPoolExecutor(max_workers=64) as executor:
+                executor.map(partial(insert_pair_data, **kwargs), ids)
+            print("making next query of {}...".format(limit))
             ids = [d["_id"] for d in client[mongo_db][mongo_coll].find({test_prop: {"$exists": False}}, {"_id": 1}).limit(limit)]
 
 
@@ -253,28 +251,26 @@ def create_pairs_db_newID(new_ids, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, m
         old_ids = [i for i in all_ids if i not in new_ids]
         print("Num of IDs Used: ", len(all_ids))
 
-    random.shuffle(new_ids)
-    for i_1, id_1 in tqdm.tqdm(enumerate(new_ids)):
-        # Generate insert data with new ids and old ids
+        random.shuffle(new_ids)
+        for i_1, id_1 in tqdm.tqdm(enumerate(new_ids)):
+            # Generate insert data with new ids and old ids
 
-        with MongoClient("mongodb://localhost:27017") as low_client:
-            already_updated = low_client["local"]["updated_ids"].find_one({"_id": id_1})
-        if already_updated:
-            print("Already updated ", id_1)
-            continue
-        potential_ids = ["_".join(sorted([str(id_1), str(id_2)])) for id_2 in [id_ for i_2, id_ in enumerate(new_ids) if i_2 > i_1] + old_ids]
-        with MongoClient(mongo_uri) as client:
-            query = {"_id": {"$in": potential_ids}, "diff_homo": {"$exists": False}}
-            ids = [d["_id"] for d in client[mongo_db][pairs_coll].find(query, {"_id": 1})]
+            already_updated = client["local"]["updated_ids"].find_one({"_id": id_1})
+            if already_updated:
+                print("Already updated ", id_1)
+                continue
+            potential_ids = ["_".join(sorted([str(id_1), str(id_2)])) for id_2 in [id_ for i_2, id_ in enumerate(new_ids) if i_2 > i_1] + old_ids]
+            with MongoClient(mongo_uri) as client:
+                query = {"_id": {"$in": potential_ids}, "diff_homo": {"$exists": False}}
+                ids = [d["_id"] for d in client[mongo_db][pairs_coll].find(query, {"_id": 1})]
 
-        print(f"Inserting data for {len(ids)} ids...")
+            print(f"Inserting data for {len(ids)} ids...")
 
-        with ThreadPoolExecutor(max_workers=64) as executor:
-            executor.map(partial(insert_pair_data, insert=True, **kwargs), ids)
+            with ThreadPoolExecutor(max_workers=64) as executor:
+                executor.map(partial(insert_pair_data, insert=True, **kwargs), ids)
 
-        with MongoClient("mongodb://localhost:27017") as low_client:
-            low_client["local"]["updated_ids"].insert_one({"_id": id_1}, {})
-            print(f"\n--------------------------\nAll pairs with {id_1} updated.\n--------------------------\n")
+                client["local"]["updated_ids"].insert_one({"_id": id_1}, {})
+                print(f"\n--------------------------\nAll pairs with {id_1} updated.\n--------------------------\n")
 
 
 def create_pairs_db_batch(limit=2, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll=MONGO_PAIRS_COLL,
