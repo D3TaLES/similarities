@@ -260,9 +260,8 @@ def create_pairs_db_newID(new_ids, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, m
                 print("Already updated ", id_1)
                 continue
             potential_ids = ["_".join(sorted([str(id_1), str(id_2)])) for id_2 in [id_ for i_2, id_ in enumerate(new_ids) if i_2 > i_1] + old_ids]
-            with MongoClient(mongo_uri) as client:
-                query = {"_id": {"$in": potential_ids}, "diff_homo": {"$exists": False}}
-                ids = [d["_id"] for d in client[mongo_db][pairs_coll].find(query, {"_id": 1})]
+            query = {"_id": {"$in": potential_ids}, "diff_homo": {"$exists": False}}
+            ids = [d["_id"] for d in client[mongo_db][pairs_coll].find(query, {"_id": 1})]
 
             print(f"Inserting data for {len(ids)} ids...")
 
