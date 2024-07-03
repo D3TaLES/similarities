@@ -487,3 +487,39 @@ def batch_db_kde(sim="mfpReg_tanimoto", prop="diff_homo", batch_size=10000, tota
     avg_perc = (results["percent"] * results["length"]).sum() / results["length"].sum()
     print(f"KDE Top Area for {sim} and {prop}: {avg_perc}") if verbose else None
     return (avg_perc, results) if return_all_d else avg_perc
+
+
+def batch_kde_all(kde_percent=0.05, top_percent= .10, replace=False, batch_size=100000, total_docs=353314653, verbose=2)
+    with MongoClient(MONGO_CONNECT) as client:
+        all_cols = [k for k in client[MONGO_DB]["mol_pairs"].find_one().keys() if k not in ['_id', 'id_1', 'id_2']]
+    sim_cols = [c for c in all_cols if ("Reg_" in c or "SCnt_" in c)]
+    prop_cols = [c for c in all_cols if (c not in sim_cols)]
+    
+    save_file = DATA_DIR / f"IntegralRatios_DB_kde{int(kde_percent*100):02d}_top{int(top_percent*100):02d}.csv"
+    sims = [s for s in sim_cols if "mcconnaughey" not in s]
+    area_df = pd.DataFrame(index=sims, columns=prop_cols)
+    
+    for y in prop_cols:
+        for x in sims: 
+            if not replace: 
+                area_df = pd.read_csv(save_file, index_col=0)
+                if pd.notna(area_df.at[x,y]): 
+                    print(f"--> KDE Top Area for {x} and {y} already exists: {area_df.at[x,y]}") if verbose else None
+                    continue
+            avg_perc = batch_db_kde(sim=x, prop=y, batch_size=batch_size, total_docs=total_docs,
+                                    kde_percent=kde_percent, top_percent=top_percent, 
+                                    verbose=verbose, return_all_d=False)
+            print(f"--> KDE Top Area for {x} and {y}: {avg_perc}") if verbose else None
+            area_df.at[x,y] = avg_perc
+            area_df.to_csv(save_file)
+    return area_df
+
+
+def plot_area_df(area_df): 
+    area_df.sort_values("diff_homo", inplace=True)
+    area_df.plot(figsize=(10,6))
+    plt.xticks(range(0,len(area_df.index)), area_df.index, rotation="vertical", fontsize=10)
+    plt.xlabel("Similarity metric")
+    plt.ylabel("Ratio of the KDE integral of the top data percentile ")
+    plt.tight_layout()
+    plt.savefig(os.path.join(BASE_DIR, "plots", f"IntegralRatios_kde{int(kde_percent*100):02d}_top{int(top_percent*100):02d}.png"), dpi=300)
