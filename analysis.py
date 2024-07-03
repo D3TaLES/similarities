@@ -9,21 +9,7 @@ import matplotlib.pyplot as plt
 from similarities.settings import *
 
 
-def kde_plot(x, y, kernel, plot_3d=False):
-    """
-    Creates a plot of Kernel Density Estimation (KDE) for given data.
-
-    Parameters:
-    x (array-like): 1D array of x-values of the data points.
-    y (array-like): 1D array of y-values of the data points.
-    kernel (callable): KDE function that computes the density estimate.
-                       This is typically generated using a library like scipy.stats.gaussian_kde.
-    plot_3d (bool, optional): If True, creates a 3D surface plot of the KDE.
-                              If False, creates a 2D contour plot. Default is False.
-
-    Returns:
-    matplotlib.axes._axes.Axes: The matplotlib axes object with the plot.
-    """
+def kde_plot(x, y, kernel, plot_3d=False, top_min=None):
     # Contour plot
     X, Y = np.mgrid[x.min():x.max():100j, y.min():y.max():100j]
     positions = np.vstack([X.ravel(), Y.ravel()])
@@ -34,16 +20,26 @@ def kde_plot(x, y, kernel, plot_3d=False):
         ax = fig.add_subplot(111, projection="3d")
         ax.plot_surface(X, Y, Z, cmap="Blues", lw=0.1, rstride=1, cstride=1, ec='k')
         ax.set_zlabel("KDE", fontsize=10, rotation=90)
+        if top_min: 
+            # Plot orange plane at top min
+            yy, zz = np.meshgrid(np.linspace(*ax.get_ylim()),np.linspace(*ax.get_zlim()))
+            ax.plot_surface(yy*0 + top_min, yy, zz, alpha=0.3, color='orange')
+
+            # Plot green plane for top min integration
+            xx, zz = np.meshgrid(np.linspace(top_min-0.01, x.max()), np.linspace(*ax.get_zlim()))
+            zz_masked = np.minimum(zz, np.interp(xx, X[:, 0], Z[:, 0]))  # Interpolate using the center row of Z
+            ax.plot_surface(xx, xx*0 + Y.min(), zz_masked, alpha=0.4, color='green')
     else: 
         plt.scatter(x, y, s=0.1, color='b')
         ax = plt.gca()
         cset = ax.contour(X, Y, Z, colors='k', levels=[0.01, 0.05, 0.1, 0.5])
         ax.clabel(cset, inline=1, fontsize=10)
+        if top_min: 
+            ax.vlines(top_min, *ax.get_ylim(), colors='orange')
     return ax
 
-
 def kde_integrals(data_df, kde_percent=1, top_percent=0.10, x_name="mfpReg_tanimoto", y_name="diff_homo",
-                  prop_abs=True, plot_kde=False, plot_3d=False, save_fig=True, top_min=None, return_kernel=False):
+                  prop_abs=True, plot_kde=False, plot_3d=False, save_fig=True, top_min=None, return_kernel=False, verbose=1):
     """
     Compute the ratio of the kernel density estimate (KDE) integral of the top percentile data to the integral of the entire dataset.
 
@@ -65,6 +61,7 @@ def kde_integrals(data_df, kde_percent=1, top_percent=0.10, x_name="mfpReg_tanim
         If `plot_kde` is True, the function will also plot the KDE contour and a vertical line representing the top percentile divide. It will save the plot as an image file.
   """
     kde_data = data_df.nlargest(round(len(data_df.index) * kde_percent), x_name)
+    print(f"KDE percent {x_name} min: {kde_data[x_name].min()}") if verbose > 2 else None
     if prop_abs:
         kde_data[y_name] = kde_data[y_name].apply(abs)
     # Perform the kernel density estimate
@@ -76,6 +73,7 @@ def kde_integrals(data_df, kde_percent=1, top_percent=0.10, x_name="mfpReg_tanim
     # Get top entries and compare the KDE integral of that range with whole range
     if not top_min: 
         top_min = kde_data.nlargest(round(len(kde_data.index) * top_percent), x_name)[x_name].min()
+    print(f"{x_name} top min: {top_min}") if verbose > 2 else None
     total_integ = kernel.integrate_box((0, 0), (np.inf, np.inf))  # -np.inf, -np.inf
     top_integ = kernel.integrate_box((top_min, 0), (np.inf, np.inf))
     percent_top_area = top_integ / total_integ
@@ -160,11 +158,12 @@ def generate_kde_df(sample_pairs_df, kde_percent, top_percent, sim_metrics=None,
     # Initialize DataFrame to store KDE integral results
     area_df = pd.DataFrame(index=range(len(sims)), columns=[])
     area_df["sim"] = sims
+    sample_pairs_df.fillna(0, inplace=True)
     print("--> Starting KDE integral analysis.") if verbose > 0 else None
     for prop in prop_cols:
         area_df[prop] = area_df.apply(
             lambda x: kde_integrals(sample_pairs_df, kde_percent=kde_percent, top_percent=top_percent,
-                                    x_name=x.sim, y_name=prop, **kwargs),
+                                    x_name=x.sim, y_name=prop, verbose=verbose, **kwargs),
             axis=1)
         print("--> Finished KDE integral analysis for {}.".format(prop)) if verbose > 1 else None
     area_df.set_index("sim", inplace=True)
@@ -172,6 +171,27 @@ def generate_kde_df(sample_pairs_df, kde_percent, top_percent, sim_metrics=None,
         area_df.sort_values("diff_hl", inplace=True)
 
     return area_df
+
+def randomize_similarities(base_df, sim_metrics=None, verbose=1):
+    """
+    Generates a DataFrame containing the Kernel Density Estimation (KDE) integrals for specified similarity metrics and properties.
+
+    Parameters:
+    base_df (pd.DataFrame): DataFrame containing the sample pairs data with similarity metrics and properties.
+    sim_metrics (list, optional): List of similarity metrics to consider. If None, defaults to all columns containing "Reg_" or "SCnt_" 
+    verbose (int, optional): Verbosity level for logging progress and debug information. Default is 1.
+
+    Returns:
+    pd.DataFrame: DataFrame with similarity metrics as rows and properties as columns, containing the KDE integral values.
+    """
+    # Identify similarity metric columns
+    sim_cols = [c for c in base_df.columns if ("Reg_" in c or "SCnt_" in c)]
+
+    num_rows = base_df.shape[0]
+    for sim in sim_cols: 
+        base_df[sim] = np.random.uniform(0, 1, num_rows)
+
+    return base_df
 
 
 def random_sample_nosql(x=None, y=None, size=1000, verbose=1, kde_percent=1,
@@ -208,8 +228,8 @@ def random_sample_nosql(x=None, y=None, size=1000, verbose=1, kde_percent=1,
     return df
 
 
-def random_kde_nosql(x="mfpReg_tanimoto", y="diff_homo", size=1000,
-                     top_percent=0.10, verbose=1, return_df=False, **kwargs):
+def random_kde_nosql(x="mfpReg_tanimoto", y="diff_homo", size=1000, rand_seed=1,
+                     top_percent=0.10, verbose=1, return_df=False, plot_kde=False, **kwargs):
     """
     Samples a random subset of documents from a MongoDB collection, performs KDE analysis, and returns the top percentile area.
 
@@ -225,13 +245,17 @@ def random_kde_nosql(x="mfpReg_tanimoto", y="diff_homo", size=1000,
     Returns:
     float or tuple: The KDE top percentile area. If `return_df` is True, returns a tuple (KDE top percentile area, DataFrame).
     """
-    df = random_sample_nosql(x=x, y=y, size=size, verbose=verbose, **kwargs)
+    sample_pairs_csv = DATA_DIR / "composite_data" / f"Combo_{size}size_{rand_seed:02d}.csv"
+    if not os.path.isfile(sample_pairs_csv):
+        df = random_sample_nosql(x=x, y=y, size=size, verbose=verbose, kde_percent=kde_percent, **kwargs)
+    else: 
+        df = pd.read_csv(sample_pairs_csv, index_col=0)
     print("Starting analysis...") if verbose else None
-    perc = kde_integrals(df, x_name=x, y_name=y, kde_percent=1, top_percent=top_percent, plot_kde=False)
+    perc = kde_integrals(df, x_name=x, y_name=y, kde_percent=1, top_percent=top_percent, plot_kde=plot_kde)
     return (perc, df) if return_df else perc
 
 
-def rand_composite_nosql(size, kde_percent, top_percent, num_trials=30, plot=True, verbose=1,
+def rand_composite_nosql(size, kde_percent, top_percent, num_trials=30, plot=True, verbose=1, random=False, ylims=None, ax=None,
                          mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll=MONGO_PAIRS_COLL):
     """
     Performs a composite analysis by sampling multiple datasets, applying KDE analysis, and aggregating results.
@@ -252,16 +276,18 @@ def rand_composite_nosql(size, kde_percent, top_percent, num_trials=30, plot=Tru
     comp_dir = DATA_DIR / "composite_data"
 
     # Iterate through multiple trials
+    anal_name = f"{size}size_{int(kde_percent * 100):02d}kde_{int(top_percent * 100):02d}top" + ("_random" if random else "")
     for i in range(num_trials):
-        trial_name = f"{size}size_{int(kde_percent * 100):02d}kde_{int(top_percent * 100):02d}top_Rand{i:02d}"
+        trial_name = f"{anal_name}_Rand{i:02d}" + ("_random" if random else "")
         print("Creating data sample with random seed {}...".format(i)) if verbose else None
-        sample_pairs_csv = comp_dir / f"Combo_{size}size_{i:02d}.csv"
-        area_df_csv = comp_dir / f"IntegralRatios_{trial_name}.csv"
 
         # Check if the area_df_csv file exists
+        area_df_csv = comp_dir / f"IntegralRatios_{trial_name}.csv"
         if not os.path.isfile(area_df_csv):
             # If sample_pairs_csv does not exist, generate a new random sample and save to CSV
+            sample_pairs_csv = comp_dir / f"Combo_{size}size_{i:02d}.csv"
             if not os.path.isfile(sample_pairs_csv):
+                # Establish one variable, _working_df, so only one DataFrame is held in memory 
                 _working_df = random_sample_nosql(size=size, verbose=verbose,
                                                   mongo_uri=mongo_uri, mongo_db=mongo_db, mongo_coll=mongo_coll)
                 _working_df.to_csv(sample_pairs_csv)
@@ -269,7 +295,14 @@ def rand_composite_nosql(size, kde_percent, top_percent, num_trials=30, plot=Tru
                 _working_df = pd.read_csv(sample_pairs_csv, index_col=0)
 
             # Generate KDE integrals DataFrame and save to CSV
-            _working_df = generate_kde_df(_working_df, kde_percent=kde_percent, top_percent=top_percent, verbose=2)
+            if random: 
+                random_csv = comp_dir / f"Combo_{size}size_{i:02d}_random.csv"
+                if not os.path.isfile(random_csv): 
+                    _working_df = randomize_similarities(_working_df)
+                    _working_df.to_csv(random_csv)
+                else: 
+                    _working_df = pd.read_csv(random_csv, index_col=0)
+            _working_df = generate_kde_df(_working_df, kde_percent=kde_percent, top_percent=top_percent, verbose=verbose)
             _working_df.to_csv(area_df_csv)
         else:
             _working_df = pd.read_csv(area_df_csv, index_col=0)
@@ -281,20 +314,98 @@ def rand_composite_nosql(size, kde_percent, top_percent, num_trials=30, plot=Tru
     avg_df = pd.concat(avg_dfs, axis=1)
 
     # Sort avg_df by the maximum value in each row
-    avg_df = avg_df.reindex(avg_df.max(axis=1).sort_values().index)
+    sort_value = (avg_df.mean(axis=1) + avg_df.std(axis=1)).sort_values()
+    avg_df = avg_df.reindex(sort_value.index)
 
     # Save avg_df to CSV
     avg_df.to_csv(comp_dir / f"AvgIntegralRatios_{trial_name}.csv")
 
     # Plotting if plot=True
     if plot:
-        ax = sns.scatterplot(avg_df)
+        mean_row, std_row = avg_df.mean(axis=1), avg_df.std(axis=1)
+        ax = sns.scatterplot(avg_df, s=10, ax=ax)
+        ax.plot(mean_row, label='Mean', color='blue')
+        ax.fill_between(mean_row.index, mean_row - std_row, mean_row + std_row, color='blue', alpha=0.2, label='1 Std Dev')
         # ax = avg_df.plot(figsize=(10, 6))
         sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
-        plt.xticks(range(0, len(avg_df.index)), avg_df.index, rotation="vertical", fontsize=10)
-        plt.xlabel("Similarity metric")
-        plt.ylabel("Normalized average ratio of \nthe KDE integrals of the top data percentile ")
+        ax.set_xticks(range(0, len(avg_df.index)), avg_df.index, rotation="vertical", fontsize=10)
+        if ylims: 
+            ax.set_ylim(*ylims)
+        ax.set_xlabel("Similarity Measure")
+        ax.set_ylabel("Average Top Area Ratio")
+        ax.set_title(anal_name.replace("_", " ").capitalize())
         plt.tight_layout()
-        plt.savefig(PLOT_DIR / f"AvgIntegralRatios_{size}size_{int(kde_percent * 100):02d}kde_"
-                               f"{int(top_percent * 100):02d}top_{num_trials:02d}trials.png", dpi=300)
+        plt.savefig(PLOT_DIR / f"AvgIntegralRatios_{anal_name}_{num_trials:02d}trials.png", dpi=300)
         print("Done. Plots saved") if verbose else None
+        return ax
+    return avg_df
+
+
+def get_bin_data(x, y, df, bin_num=20, top_bin_edge=None):
+    """
+      Get binned data for plotting.
+
+      Args:
+          x (str): Name of the column representing the independent variable.
+          y (str): Name of the column representing the dependent variable.
+          df (DataFrame): Dataframe containing the data.
+          bin_num (int, optional): Number of bins.
+          top_bin_edge (float, optional): Upper limit for the bin edges.
+
+      Returns:
+          DataFrame: Dataframe containing binned data.
+      """
+    bin_intvs = pd.cut(df[x], bins=bin_num)
+    if top_bin_edge:
+        max_x = float(df[x].max())
+        bin_intvs = bin_intvs.apply(lambda x: x if x.left <= top_bin_edge else pd.Interval(top_bin_edge, max_x))
+    sim_groups = df.groupby(bin_intvs)
+    bin_df = sim_groups[y].agg(["count", "mean", "std"])
+    bin_df['intvl_mid'] = bin_df.apply(lambda x: x.name.mid, axis=1)
+    return bin_df
+
+
+def compare_plt(x, y, df, bin_num=20, top_bin_edge=None, prop_abs=True, save=True, bin_data=True,
+                x_i=None, name_tag="", **kwargs):
+    """
+      Compare and plot data.
+
+      Args:
+          x (str): Name of the column representing the independent variable.
+          y (str): Name of the column representing the dependent variable.
+          df (DataFrame, optional): Dataframe containing the data.
+          bin_num (int, optional): Number of bins.
+          top_bin_edge (float, optional): Upper limit for the bin edges.
+          prop_abs (bool, optional): Whether to use the absolute value of the dependent variable.
+          save (bool, optional): Whether to save the plot.
+          x_i (float, optional): Lower limit for the independent variable.
+          name_tag (str, optional): output file name tag
+
+      Returns:
+          None
+      """
+    plot_df = df[[x, y]]
+    if prop_abs:
+        plot_df[y] = plot_df[y].apply(abs)
+
+    # Get x std data
+    if bin_data: 
+        print("Binning data. ")
+        bin_df = get_bin_data(x=x, y=y, df=plot_df, bin_num=bin_num, top_bin_edge=top_bin_edge)
+
+    # Plot
+    print("Plotting data points.")
+    sns.jointplot(plot_df, x=x, y=y, kind='hex', bins="log", dropna=True)
+    # plt.scatter(plot_df[x], plot_df[y], alpha=0.2, marker='.')
+    ax = plt.gca()
+    print("Plotting std. dev. bars")
+    if bin_data: 
+        ax.errorbar(bin_df["intvl_mid"], bin_df["mean"], yerr=bin_df["std"], fmt=".", color='darkorange', elinewidth=2)
+        ax.legend(["Compared Mols", "Fitted Boundary", "Bin Mean & Std. Dev." ])
+    ax.set_xlabel("Similarity ({} finderprint / {} similarity score)".format(*x.split("_")))
+    ax.set_ylabel("{}Difference in {} values".format("Absolute " if prop_abs else "", y.split("_")[1].upper()))
+    if save:
+        plt.savefig(PLOT_DIR / f"SinglePlt{name_tag}_{x}_{y.strip('diff_')}{'_abs' if prop_abs else ''}.png",
+                    dpi=300)
+
+    return ax
