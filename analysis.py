@@ -409,3 +409,81 @@ def compare_plt(x, y, df, bin_num=20, top_bin_edge=None, prop_abs=True, save=Tru
                     dpi=300)
 
     return ax
+
+
+def batch_db_kde(sim="mfpReg_tanimoto", prop="diff_homo", batch_size=10000, total_docs=353314653, 
+                 kde_percent=0.10, top_percent=0.10, zeros_cutoff=1e-10, 
+                 verbose=2, return_all_d=False,
+                 mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
+    """
+    Perform batch Kernel Density Estimation (KDE) analysis on a dataset stored in a 
+    MongoDB collection and return percent of the top integrated KDE area.
+
+    Parameters:
+    sim (str): Similarity metric to use for KDE analysis. Default is "mfpReg_tanimoto".
+    prop (str): Property to analyze alongside the similarity metric. Default is "diff_homo".
+    batch_size (int): Number of documents to process in each batch. Default is 10,000.
+    total_docs (int): Total number of documents in the collection. Default is 353,314,653.
+    kde_percent (float): Proportion of the data to use for KDE. Default is 0.10 (10%).
+    top_percent (float): Top percentile of the data to focus the KDE integral analysis on. Default is 0.10 (10%).
+    zeros_cutoff (float): Threshold below which the KDE percent is considered zero. Default is 1e-10.
+    verbose (int): Verbosity level for logging progress and debug information. Default is 2.
+    return_all_d (bool): Whether to return the detailed results DataFrame. Default is False.
+    mongo_uri (str): MongoDB connection URI.
+    mongo_db (str): MongoDB database name.
+    mongo_coll (str): MongoDB collection name. Default is "mol_pairs".
+
+    Returns:
+    float: Percent of the KDE top area.
+    (float, pd.DataFrame): If return_all_d is True, returns a tuple with the average percent and the detailed results DataFrame.
+    """
+    if not total_docs: 
+        total_docs = collection.count_documents({})
+        print("Starting total number of docs query...") if verbose > 2 else None
+
+    # Calculate the index to skip to reach the top 10th percentile
+    percentile = 100 - top_percent*kde_percent*100
+    divide = find_percentile(sim, percentile=percentile, total_docs=total_docs, verbose=verbose)
+    print(f"{sim} {percentile} percentile value ({top_percent*100} percentile of top {kde_percent*100}%): ", divide) if verbose > 1 else None
+
+    # Set up batch analysis 
+    anal_num = round(total_docs * kde_percent)
+    total_processed = 0
+    result_list = []
+    perc = 1
+    
+    print(f"Starting analysis for {anal_num} docs...") if verbose > 1 else None
+    while total_processed < anal_num:
+        # Fetch the batch of documents
+        current_batch_size = min(batch_size, anal_num - total_processed)
+        sort_dir = -1 if (total_processed < total_docs/2) else 1
+        skip_num = total_processed if (total_processed < total_docs/2) else anal_num - (total_processed - current_batch_size) 
+
+        if perc < zeros_cutoff:  # The percents keep getting lower. So, if the previous percent is less than the divide, perc ~ 0
+            perc, kernel = 0, None
+        else: 
+            print(f"...Starting query: sorting {sort_dir} and skipping {skip_num}...") if verbose > 2 else None
+            with MongoClient(mongo_uri) as client:
+                cursor = client[mongo_db][mongo_coll].find({}, {sim: 1, prop: 1}).sort({sim: sort_dir}).skip(skip_num).limit(current_batch_size)
+                b_df = pd.DataFrame(list(cursor))
+              
+            # Apply the analysis function to the DataFrame
+            d_min, d_max = b_df[sim].min(), b_df[sim].max()
+            print(f"  --> DF min {d_min}, DF max {d_max}") if verbose > 2 else None
+            
+            if d_min == d_max:  # If the DF covers no range, the percent KDE will fail. 
+                perc, kernel = 1 if d_min > divide else 0, None
+            else: 
+                perc, kernel = kde_integrals(b_df, x_name=sim, y_name=prop, kde_percent=1, top_min=divide, top_percent=top_percent, plot_kde=False, return_kernel=True)
+        result_list.append({"percent": perc, "length": b_df.shape[0], "kernel": kernel})
+        print(f"  --> Processed {total_processed} documents. Current KDE analysis ({current_batch_size} docs) yields {perc}%") if verbose > 1 else None
+
+        # Update the counter
+        processed_count = b_df.shape[0]
+        total_processed += processed_count
+
+    results = pd.DataFrame(result_list)
+    results.to_csv(DATA_DIR / f"BatchKDE_{sim}_{prop}_kde{int(kde_percent*100):02d}_{int(top_percent*100):02d}top.csv")
+    avg_perc = (results["percent"] * results["length"]).sum() / results["length"].sum()
+    print(f"KDE Top Area for {sim} and {prop}: {avg_perc}") if verbose else None
+    return (avg_perc, results) if return_all_d else avg_perc
