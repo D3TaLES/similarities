@@ -102,8 +102,8 @@ class SimilarityPairsDBAnalysis:
         self.verbose = verbose
         self.total_docs = total_docs or self._get_total_docs()
 
-        self.kde_percent = kde_percent
-        self.top_percent = top_percent
+        self.kde_percent = kde_percent / 100 if kde_percent > 1 else kde_percent
+        self.top_percent = top_percent / 100 if top_percent > 1 else top_percent
         self.percentile = 100 - (self.top_percent * self.kde_percent * 100)
         self.perc_name = f"kde{int(self.kde_percent * 100):02d}_{int(self.top_percent * 100):02d}top"
         self.prop_cols = [f"diff_{ep}" for ep in elec_props]
@@ -113,6 +113,7 @@ class SimilarityPairsDBAnalysis:
         os.makedirs(self.data_dir, exist_ok=True)
         self.plot_dir = PLOT_DIR / mongo_coll
         os.makedirs(self.plot_dir, exist_ok=True)
+        self.batch_kde_file = self.data_dir / f"IntegralRatios_allDB_{self.perc_name}.csv"
         self.divides_file = self.data_dir / f"TopDivides_DB_percentile{int(self.percentile):02d}.csv"
 
     def _get_total_docs(self):
@@ -421,7 +422,7 @@ class SimilarityPairsDBAnalysis:
         return avg_df
 
     def batch_db_kde(self, sim="mfpReg_tanimoto", prop="diff_homo", batch_size=10000, zeros_cutoff=1e-10, divide=None,
-                     return_all_d=False, ):
+                     return_all_d=False, replace=False):
         """
         Perform batch Kernel Density Estimation (KDE) analysis on a dataset stored in a 
         MongoDB collection and return percent of the top integrated KDE area.
@@ -437,6 +438,14 @@ class SimilarityPairsDBAnalysis:
         float: Percent of the KDE top area.
         (float, pd.DataFrame): If return_all_d is True, returns a tuple with the average percent and the results.
         """
+
+        # Check of already exists
+        batch_df = pd.read_csv(self.batch_kde_file, index_col=0) if os.path.isfile(
+            self.batch_kde_file) else pd.DataFrame(index=self.sim_cols, columns=self.prop_cols)
+        if not replace and pd.notna(batch_df.at[sim, prop]):
+            print(f"--> KDE Top Area for {sim} and {prop} exists: {batch_df.at[sim, prop]}") if self.verbose else None
+            return batch_df.at[sim, prop]
+
         # Calculate the index to skip to reach the top percentile
         divide = divide or self.find_percentile(sim, percentile=self.percentile)
         print(f"{sim} {self.percentile} percentile value ({self.top_percent * 100} percentile of top "
@@ -487,41 +496,31 @@ class SimilarityPairsDBAnalysis:
         results.to_csv(self.data_dir / f"BatchKDE_{sim}_{prop}_{self.perc_name}.csv")
         avg_perc = (results["percent"] * results["length"]).sum() / results["length"].sum()
         print(f"KDE Top Area for {sim} and {prop}: {avg_perc}") if self.verbose else None
+
+        # Save batch KDE top percent
+        batch_df.at[sim, prop] = avg_perc
+        batch_df.to_csv(self.batch_kde_file)
         return (avg_perc, results) if return_all_d else avg_perc
 
     def batch_kde_all(self, replace=False, batch_size=100000):
-
-        save_file = self.data_dir / f"IntegralRatios_DB_{self.perc_name}.csv"
-        area_df = pd.DataFrame(index=self.sim_cols, columns=self.prop_cols)
-
         for y in self.prop_cols:
             for x in self.sim_cols:
-                if not replace:
-                    area_df = pd.read_csv(save_file, index_col=0)
-                    if pd.notna(area_df.at[x, y]):
-                        if self.verbose:
-                            print(f"--> KDE Top Area for {x} and {y} already exists: {area_df.at[x, y]}")
-                        continue
                 avg_perc = self.batch_db_kde(sim=x, prop=y, batch_size=batch_size, return_all_d=False,
-                                             divide=self.get_divide(x))
+                                             divide=self.get_divide(x), replace=replace)
                 print(f"--> KDE Top Area for {x} and {y}: {avg_perc}") if self.verbose else None
-                area_df.at[x, y] = avg_perc
-                area_df.to_csv(save_file)
-        return area_df
+
+        return pd.read_csv(self.batch_kde_file)
 
     def get_divide(self, sim_metric, replace=False):
         # Establish area DF
-        if os.path.isfile(self.divides_file):
-            area_df = pd.read_csv(self.divides_file, index_col=0)
-        else:
-            area_df = pd.DataFrame(index=self.sim_cols, columns=["divide"])
+        area_df = pd.read_csv(self.divides_file, index_col=0) if os.path.isfile(self.divides_file) else pd.DataFrame(
+            index=self.sim_cols, columns=["divide"])
 
         # Get divide value
-        if not replace:
-            existing_divide = area_df.at[sim_metric, 'divide']
-            if pd.notna(existing_divide):
-                print(f"--> {sim_metric} {self.percentile}% value exists: {existing_divide}") if self.verbose > 1 else None
-                return existing_divide
+        if not replace and pd.notna(area_df.at[sim_metric, 'divide']):
+            print(f"--> {sim_metric} {self.percentile}% value exists: {area_df.at[sim_metric, 'divide']}"
+                  ) if self.verbose > 1 else None
+            return area_df.at[sim_metric, 'divide']
         divide = self.find_percentile(sim_metric, percentile=self.percentile)
         print(f"--> {sim_metric} {self.percentile} percentile value ({self.top_percent * 100} percentile of top "
               f"{self.kde_percent * 100}%): ", divide) if self.verbose > 1 else None
