@@ -516,6 +516,36 @@ def batch_kde_all(kde_percent=0.05, top_percent= .10, replace=False, batch_size=
     return area_df
 
 
+def gen_all_divides(kde_percent=0.10, top_percent=0.10, total_docs=353314653, replace=False, verbose=2):
+    with MongoClient(MONGO_CONNECT) as client:
+        all_cols = [k for k in client[MONGO_DB]["mol_pairs"].find_one().keys() if k not in ['_id', 'id_1', 'id_2']]
+    sim_cols = [c for c in all_cols if ("Reg_" in c or "SCnt_" in c)]
+    sims = [s for s in sim_cols if "mcconnaughey" not in s]
+    area_df = pd.DataFrame(index=sims, columns=["divide"])
+
+    if not total_docs: 
+        total_docs = collection.count_documents({})
+        print("Starting total number of docs query...") if verbose > 2 else None
+
+    # Calculate the index to skip to reach the top percentile
+    percentile = 100 - top_percent*kde_percent*100
+    print(f"Finding all divides for {percentile} percentile values ({top_percent*100} percentile of top {kde_percent*100}%)")
+    save_file = DATA_DIR / f"TopDivides_DB_percentile{int(percentile):02d}.csv"
+    
+    for x in sims: 
+        if not replace and os.path.isfile(save_file): 
+            area_df = pd.read_csv(save_file, index_col=0)
+            if pd.notna(area_df.at[x,y]): 
+                print(f"--> {percentile} percentile value for {x} already exists: {area_df.at[x,"divide"]}") if verbose > 1 else None
+                continue
+        
+        divide = find_percentile(x, percentile=percentile, total_docs=total_docs, verbose=verbose)
+        print(f"--> {x} {percentile} percentile value ({top_percent*100} percentile of top {kde_percent*100}%): ", divide) if verbose > 1 else None
+        area_df.at[x,"divide"] = avg_perc
+        area_df.to_csv(save_file)
+    return area_df
+    
+
 def plot_area_df(area_df): 
     area_df.sort_values("diff_homo", inplace=True)
     area_df.plot(figsize=(10,6))
