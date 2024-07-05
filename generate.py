@@ -260,6 +260,7 @@ def create_pairs_db_newID(new_ids, mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, m
             if already_updated:
                 print("Already updated ", id_1)
                 continue
+            print("Starting un-updated query for {}...".format(id_1))
             potential_ids = ["_".join(sorted([str(id_1), str(id_2)])) for id_2 in [id_ for i_2, id_ in enumerate(new_ids) if i_2 > i_1] + old_ids]
             query = {"_id": {"$in": potential_ids}, "diff_homo": {"$exists": False}}
             ids = [d["_id"] for d in client[mongo_db][pairs_coll].find(query, {"_id": 1})]
@@ -369,7 +370,7 @@ if __name__ == "__main__":
 
     # create_pairs_db_parallel(verbose=2, sim_min=0.15)
 
-    # create_pairs_db_parallel(verbose=2)
-    create_pairs_db_newID(new_ids, verbose=2, sim_min=0.15)
+    create_pairs_db_parallel(verbose=2)
+    # create_pairs_db_newID(new_ids, verbose=2, sim_min=0.15)
 
     # delete_pairs_db_idx(new_ids=new_ids)
