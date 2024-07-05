@@ -1,4 +1,5 @@
 import os
+import pymongo
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -119,17 +120,17 @@ def find_percentile(field, percentile, total_docs=None, verbose=1,
         with MongoClient(mongo_uri) as client:
             total_docs = client[mongo_db][mongo_coll].count_documents({})
     if percentile < 50: 
-        sort_dir = 1 
+        sort_dir = pymongo.ASCENDING
         percentile_idx = int(total_docs * (percentile/100))
     else: 
-        sort_dir = -1 
+        sort_dir = pymongo.DESCENDING
         percentile_idx = int(total_docs * ((100-percentile)/100))
     print(f"Percentile index {percentile_idx} out of total {total_docs} documents.") if verbose else None
 
-    print("Starting sort and skip query..") if verbose else None
+    print("Starting sort and skip query..") if verbose > 2 else None
     with MongoClient(mongo_uri) as client:
-        cursor = client[mongo_db][mongo_coll].find({}, {field: 1, '_id': 0}).sort(field, sort_dir).skip(percentile_idx).limit(1)
-        return list(cursor)[0][field]
+        doc = client[mongo_db][mongo_coll].find_one({}, {field: 1}, sort=[(field, sort_dir)], skip=percentile_idx, allow_disk_use=True)
+        return doc[field]
 
 
 def generate_kde_df(sample_pairs_df, kde_percent, top_percent, sim_metrics=None, props=None, verbose=1, **kwargs):
@@ -489,7 +490,7 @@ def batch_db_kde(sim="mfpReg_tanimoto", prop="diff_homo", batch_size=10000, tota
     return (avg_perc, results) if return_all_d else avg_perc
 
 
-def batch_kde_all(kde_percent=0.05, top_percent= .10, replace=False, batch_size=100000, total_docs=353314653, verbose=2)
+def batch_kde_all(kde_percent=0.05, top_percent= .10, replace=False, batch_size=100000, total_docs=353314653, verbose=2):
     with MongoClient(MONGO_CONNECT) as client:
         all_cols = [k for k in client[MONGO_DB]["mol_pairs"].find_one().keys() if k not in ['_id', 'id_1', 'id_2']]
     sim_cols = [c for c in all_cols if ("Reg_" in c or "SCnt_" in c)]
