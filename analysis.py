@@ -489,7 +489,7 @@ def batch_db_kde(sim="mfpReg_tanimoto", prop="diff_homo", batch_size=10000, tota
     return (avg_perc, results) if return_all_d else avg_perc
 
 
-def batch_kde_all(kde_percent=0.05, top_percent= .10, replace=False, batch_size=100000, total_docs=353314653, verbose=2)
+def batch_kde_all(kde_percent=0.05, top_percent= .10, replace=False, batch_size=100000, total_docs=353314653, verbose=2):
     with MongoClient(MONGO_CONNECT) as client:
         all_cols = [k for k in client[MONGO_DB]["mol_pairs"].find_one().keys() if k not in ['_id', 'id_1', 'id_2']]
     sim_cols = [c for c in all_cols if ("Reg_" in c or "SCnt_" in c)]

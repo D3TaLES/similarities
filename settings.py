@@ -13,7 +13,7 @@ DB_FILE = DATA_DIR / "similarities.db"
 MONGO_CONNECT = "mongodb://10.33.30.17:23771/"
 MONGO_DB = "random"
 MONGO_MOL_COLL = "molecules"
-MONGO_PAIRS_COLL = "mol_pairs"
+MONGO_PAIRS_COLL = "old_mol_pairs"
 
 
 # Electronic Props to compare
@@ -46,7 +46,7 @@ SIM_METRICS = {
     # "Tversky": rdk_d.TverskySimilarity,  # requires alpha and beta params
     "Dice": rdk_d.DiceSimilarity,
     "Sokal": rdk_d.SokalSimilarity,
-    "McConnaughey": rdk_d.McConnaugheySimilarity,
+    # "McConnaughey": rdk_d.McConnaugheySimilarity,
     "Russel": rdk_d.RusselSimilarity,
     "Kulczynski": rdk_d.KulczynskiSimilarity,
 }
