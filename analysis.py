@@ -413,7 +413,7 @@ def compare_plt(x, y, df, bin_num=20, top_bin_edge=None, prop_abs=True, save=Tru
 
 
 def batch_db_kde(sim="mfpReg_tanimoto", prop="diff_homo", batch_size=10000, total_docs=353314653, 
-                 kde_percent=0.10, top_percent=0.10, zeros_cutoff=1e-10, 
+                 kde_percent=0.10, top_percent=0.10, zeros_cutoff=1e-10, divide=None,
                  verbose=2, return_all_d=False,
                  mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll="mol_pairs"):
     """
@@ -442,9 +442,9 @@ def batch_db_kde(sim="mfpReg_tanimoto", prop="diff_homo", batch_size=10000, tota
         total_docs = collection.count_documents({})
         print("Starting total number of docs query...") if verbose > 2 else None
 
-    # Calculate the index to skip to reach the top 10th percentile
+    # Calculate the index to skip to reach the top percentile
     percentile = 100 - top_percent*kde_percent*100
-    divide = find_percentile(sim, percentile=percentile, total_docs=total_docs, verbose=verbose)
+    divide = divide or find_percentile(sim, percentile=percentile, total_docs=total_docs, verbose=verbose)
     print(f"{sim} {percentile} percentile value ({top_percent*100} percentile of top {kde_percent*100}%): ", divide) if verbose > 1 else None
 
     # Set up batch analysis 
