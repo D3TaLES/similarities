@@ -511,10 +511,15 @@ class SimilarityPairsDBAnalysis:
 
         return pd.read_csv(self.batch_kde_file)
 
-    def get_divide(self, sim_metric, replace=False):
+    def get_divide(self, sim_metric, replace=False, set_in_progress=False):
         # Establish area DF
         area_df = pd.read_csv(self.divides_file, index_col=0) if os.path.isfile(self.divides_file) else pd.DataFrame(
             index=self.sim_cols, columns=["divide"])
+
+        # Set this divide calculation in progress
+        if set_in_progress:
+            area_df.at[sim_metric, "divide"] = "in_progress"
+            area_df.to_csv(self.divides_file)
 
         # Get divide value
         if not replace and pd.notna(area_df.at[sim_metric, 'divide']):
