@@ -502,12 +502,17 @@ class SimilarityPairsDBAnalysis:
         batch_df.to_csv(self.batch_kde_file)
         return (avg_perc, results) if return_all_d else avg_perc
 
-    def batch_kde_all(self, replace=False, batch_size=100000):
+    def batch_kde_all_prop(self, sim, replace=False, batch_size=100000):
         for y in self.prop_cols:
-            for x in self.sim_cols:
-                avg_perc = self.batch_db_kde(sim=x, prop=y, batch_size=batch_size, return_all_d=False,
-                                             divide=self.get_divide(x), replace=replace)
-                print(f"--> KDE Top Area for {x} and {y}: {avg_perc}") if self.verbose else None
+            avg_perc = self.batch_db_kde(sim=sim, prop=y, batch_size=batch_size, return_all_d=False,
+                                         divide=self.get_divide(x), replace=replace)
+            print(f"--> KDE Top Area for {sim} and {y}: {avg_perc}") if self.verbose else None
+
+        return pd.read_csv(self.batch_kde_file)
+
+    def batch_kde_all(self, replace=False, batch_size=100000):
+        for x in self.sim_cols:
+            avg_perc = self.batch_kde_all_prop(sim=x, batch_size=batch_size, replace=replace)
 
         return pd.read_csv(self.batch_kde_file)
 
