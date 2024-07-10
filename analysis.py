@@ -422,7 +422,7 @@ class SimilarityPairsDBAnalysis:
         return avg_df
 
     def batch_db_kde(self, sim="mfpReg_tanimoto", prop="diff_homo", batch_size=10000, zeros_cutoff=1e-10, divide=None,
-                     return_all_d=False, replace=False):
+                     return_all_d=False, replace=False, set_in_progress=False):
         """
         Perform batch Kernel Density Estimation (KDE) analysis on a dataset stored in a 
         MongoDB collection and return percent of the top integrated KDE area.
@@ -445,6 +445,11 @@ class SimilarityPairsDBAnalysis:
         if not replace and pd.notna(batch_df.at[sim, prop]):
             print(f"--> KDE Top Area for {sim} and {prop} exists: {batch_df.at[sim, prop]}") if self.verbose else None
             return batch_df.at[sim, prop]
+
+        # Set this divide calculation in progress
+        if set_in_progress:
+            batch_df.at[sim, prop] = "in_progress"
+            batch_df.to_csv(self.divides_file)
 
         # Calculate the index to skip to reach the top percentile
         divide = divide or self.find_percentile(sim, percentile=self.percentile)
@@ -502,17 +507,16 @@ class SimilarityPairsDBAnalysis:
         batch_df.to_csv(self.batch_kde_file)
         return (avg_perc, results) if return_all_d else avg_perc
 
-    def batch_kde_all_prop(self, sim, replace=False, batch_size=100000):
+    def batch_kde_all_prop(self, sim, **kwargs):
         for y in self.prop_cols:
-            avg_perc = self.batch_db_kde(sim=sim, prop=y, batch_size=batch_size, return_all_d=False,
-                                         divide=self.get_divide(x), replace=replace)
+            avg_perc = self.batch_db_kde(sim=sim, prop=y, divide=self.get_divide(sim), **kwargs)
             print(f"--> KDE Top Area for {sim} and {y}: {avg_perc}") if self.verbose else None
 
         return pd.read_csv(self.batch_kde_file)
 
-    def batch_kde_all(self, replace=False, batch_size=100000):
+    def batch_kde_all(self, **kwargs):
         for x in self.sim_cols:
-            avg_perc = self.batch_kde_all_prop(sim=x, batch_size=batch_size, replace=replace)
+            self.batch_kde_all_prop(sim=x, **kwargs)
 
         return pd.read_csv(self.batch_kde_file)
 
