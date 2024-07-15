@@ -594,7 +594,7 @@ class SimilarityPairsDBAnalysis:
 
     def kde_all_prop(self, sim, **kwargs):
         for y in self.prop_cols:
-            avg_perc = self.batch_db_kde(sim=sim, prop=y, divide=self.get_divide(sim), **kwargs)
+            avg_perc = self.db_kde(sim=sim, prop=y, divide=self.get_divide(sim), **kwargs)
             print(f"--> KDE Top Area for {sim} and {y}: {avg_perc}") if self.verbose else None
 
         return pd.read_csv(self.batch_kde_file)
