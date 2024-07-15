@@ -82,11 +82,11 @@ class SimilarityPairsDBAnalysis:
                  elec_props=ELEC_PROPS, sim_metrics=SIM_METRICS, fp_gens=FP_GENS,
                  mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll=MONGO_PAIRS_COLL):
         """
-    
+
         Parameters:
-        kde_percent (float): 
-        top_percent (float): 
-        total_docs (int): 
+        kde_percent (float):
+        top_percent (float):
+        total_docs (int):
         verbose (int): Verbosity level (0 = silent, 1 = minimal output, 2 = detailed output).
         elec_props (list): List of electronic properties to calculate differences.
         sim_metrics (dict): Dictionary of similarity metrics to calculate.
@@ -94,7 +94,7 @@ class SimilarityPairsDBAnalysis:
         mongo_uri (str): MongoDB connection URI.
         mongo_db (str): MongoDB database name.
         mongo_coll (str): MongoDB collection name. Default is MONGO_PAIRS_COLL.
-    
+
         """
         self.mongo_uri = mongo_uri
         self.mongo_db = mongo_db
@@ -150,12 +150,13 @@ class SimilarityPairsDBAnalysis:
             return doc[field]
 
     @staticmethod
-    def kde_integrals(data_df, kde_percent=1, top_percent=0.10, x_name="mfpReg_tanimoto", y_name="diff_homo", bw_method=1,
+    def kde_integrals(data_df, kde_percent=1, top_percent=0.10, x_name="mfpReg_tanimoto", y_name="diff_homo",
+                      bw_method=1,
                       top_min=None, prop_abs=True, plot_kde=False, plot_3d=False, save_fig=True, plot_dir=None,
                       verbose=2, return_kernel=False):
         """
         Compute the ratio of the kernel density estimate (KDE) integral of the top percentile data to the integral of the entire dataset.
-    
+
         Args:
             data_df (DataFrame): DataFrame containing the data.
             kde_percent (float, optional): Percentage of the data (as decimal) to consider for KDE estimation. Default is 1.
@@ -163,7 +164,7 @@ class SimilarityPairsDBAnalysis:
             x_name (str, optional): Name of the column representing the independent variable. Default is "mfpReg_tanimoto".
             y_name (str, optional): Name of the column representing the dependent variable. Default is "diff_homo".
             bw_method (float, optional): bw_method for the SciPy gaussian_kde function
-            top_min (float, optional): Manual value for minimum value to compare with entire KDE. Default is None. 
+            top_min (float, optional): Manual value for minimum value to compare with entire KDE. Default is None.
             prop_abs (bool, optional): Whether to take the absolute value of the dependent variable. Default is True.
             plot_kde (bool, optional): Whether to plot the KDE and related information. Default is False.
             plot_3d (bool, optional): Whether to plot the KDE in 3D. Default is False.
@@ -174,7 +175,7 @@ class SimilarityPairsDBAnalysis:
 
         Returns:
             float: The ratio of the KDE integral of the top percentile data to the integral of the entire dataset.
-    
+
         Note:
             If `plot_kde` is True, the function will also plot the KDE contour and a vertical line representing the top percentile divide. It will save the plot as an image file.
       """
@@ -191,7 +192,7 @@ class SimilarityPairsDBAnalysis:
 
         # Get top entries and compare the KDE integral of that range with whole range
         if not top_min:
-            top_min = kde_data.nlargest(round(len(kde_data.index) * top_percent), x_name)[x_name].min()
+            top_min = kde_data[:int(len(kde_data.index) * top_percent)][x_name].min()
         print(f"{x_name} top min: {top_min}") if verbose > 2 else None
         total_integ = kernel.integrate_box((0, 0), (np.inf, np.inf))  # -np.inf, -np.inf
         top_integ = kernel.integrate_box((top_min, 0), (np.inf, np.inf))
@@ -221,7 +222,7 @@ class SimilarityPairsDBAnalysis:
 
                 yy, zz = np.meshgrid(np.linspace(*ax.get_ylim()), np.linspace(*ax.get_zlim()))
                 ax.plot_surface(yy * 0 + top_min, yy, zz, alpha=0.3, color='orange')
-                
+
             else:
                 plt.scatter(x, y, s=0.1, color='b')
                 ax = plt.gca()
@@ -230,7 +231,7 @@ class SimilarityPairsDBAnalysis:
                 if top_min:
                     ax.vlines(top_min, *ax.get_ylim(), colors='orange')
                 ax.vlines(top_min, *ax.get_ylim(), colors='orange')
-                
+
             ax.legend(["Comparison data", f"Top {top_percent * 100}% divide "])
             ax.set_xlabel("Similarity ({} fingerprint / \n{} similarity score)".format(*x_name.split("_")))
             ax.set_ylabel(
@@ -290,17 +291,18 @@ class SimilarityPairsDBAnalysis:
         else:
             df = pd.read_csv(sample_pairs_csv, index_col=0)
         print("Starting analysis...") if self.verbose else None
-        perc = self.kde_integrals(df, x_name=x, y_name=y, kde_percent=1, plot_dir=self.plot_dir, verbose=self.verbose, **kwargs)
+        perc = self.kde_integrals(df, x_name=x, y_name=y, kde_percent=1, plot_dir=self.plot_dir, verbose=self.verbose,
+                                  **kwargs)
         return (perc, df) if return_df else perc
 
     def _generate_all_kde_df(self, sample_pairs_df, **kwargs):
         """
         Generates a DataFrame containing the Kernel Density Estimation (KDE) integrals for specified similarity metrics and properties.
-    
+
         Parameters:
         sample_pairs_df (pd.DataFrame): DataFrame containing the sample pairs data with similarity metrics and properties.
         **kwargs: Additional keyword arguments to pass to the `kde_integrals` function.
-    
+
         Returns:
         pd.DataFrame: DataFrame with similarity metrics as rows and properties as columns, containing the KDE integral values.
         """
@@ -312,7 +314,7 @@ class SimilarityPairsDBAnalysis:
         for prop in self.prop_cols:
             area_df[prop] = area_df.apply(
                 lambda x: self.kde_integrals(sample_pairs_df, kde_percent=self.kde_percent,
-                                             top_percent=self.top_percent, verbose=self.verbose, 
+                                             top_percent=self.top_percent, verbose=self.verbose,
                                              x_name=x.sim, y_name=prop, plot_dir=self.plot_dir, **kwargs),
                 axis=1)
             print("--> Finished KDE integral analysis for {}.".format(prop)) if self.verbose > 1 else None
@@ -325,10 +327,10 @@ class SimilarityPairsDBAnalysis:
     def _randomize_similarities(self, base_df):
         """
         Generates a DataFrame containing the Kernel Density Estimation (KDE) integrals for specified similarity metrics and properties.
-    
+
         Parameters:
         base_df (pd.DataFrame): DataFrame containing the sample pairs data with similarity metrics and properties.
-    
+
         Returns:
         pd.DataFrame: DataFrame with similarity metrics as rows and properties as columns, containing the KDE integral values.
         """
@@ -339,11 +341,10 @@ class SimilarityPairsDBAnalysis:
 
         return base_df
 
-    
     def _get_sample_pairs_df(self, i, size, num_trials=30, plot=True, random=False):
         """
-        
-    
+
+
         Parameters:
         size (int): Number of documents to sample for each trial.
         num_trials (int, optional): Number of trials to run. Default is 30.
@@ -356,7 +357,7 @@ class SimilarityPairsDBAnalysis:
         # If sample_pairs_csv does not exist, generate a new random sample and save to CSV
         sample_pairs_csv = comp_dir / f"Combo_{size}size_{i:02d}.csv"
         if not os.path.isfile(sample_pairs_csv):
-            # Establish one variable, _working_df, so only one DataFrame is held in memory 
+            # Establish one variable, _working_df, so only one DataFrame is held in memory
             _working_df = self._random_sample(size=size, kde_percent=self.kde_percent)
             _working_df.to_csv(sample_pairs_csv)
         else:
@@ -372,11 +373,10 @@ class SimilarityPairsDBAnalysis:
                 _working_df = pd.read_csv(random_csv, index_col=0)
         return _working_df
 
-    
     def rand_composite(self, size, num_trials=30, plot=True, random=False, ylims=None, ax=None):
         """
         Performs a composite analysis by sampling multiple datasets, applying KDE analysis, and aggregating results.
-    
+
         Parameters:
         size (int): Number of documents to sample for each trial.
         num_trials (int, optional): Number of trials to run. Default is 30.
@@ -433,10 +433,11 @@ class SimilarityPairsDBAnalysis:
             return ax
         return avg_df
 
-    def rand_composite_percentiles(self, size, num_trials=30, plot=True, random=False, ylims=None, ax=None, std_percentiles=None):
+    def rand_composite_percentiles(self, size, num_trials=30, plot=True, random=False, ylims=None, ax=None,
+                                   std_percentiles=None):
         """
         Performs a composite analysis by sampling multiple datasets, applying KDE analysis, and aggregating results.
-    
+
         Parameters:
         size (int): Number of documents to sample for each trial.
         num_trials (int, optional): Number of trials to run. Default is 30.
@@ -450,10 +451,11 @@ class SimilarityPairsDBAnalysis:
         anal_name = f"{size}size_{self.perc_name}" + ("_random" if random else "")
         for i in range(num_trials):
             working_df = self._get_sample_pairs_df(i=i, size=size, num_trials=num_trials, plot=plot, random=random)
-            for sim in self.sim_cols: 
-                divide = working_df[sim].quantile(self.percentile/100)
+            for sim in self.sim_cols:
+                divide = working_df[sim].quantile(self.percentile / 100)
                 divides_df.at[sim, i] = divide
-                print("f{self.percentile} percentile divide calculated for {sim}: {divide}") if self.verbose > 1 else None
+                print(
+                    "f{self.percentile} percentile divide calculated for {sim}: {divide}") if self.verbose > 1 else None
 
         # Sort divides_df by the maximum value in each row
         sort_value = (divides_df.mean(axis=1) + divides_df.std(axis=1)).sort_values()
@@ -463,7 +465,7 @@ class SimilarityPairsDBAnalysis:
         if plot:
             mean_row, std_row = divides_df.mean(axis=1), divides_df.std(axis=1)
             ax = sns.scatterplot(divides_df, s=10, ax=ax)
-            if std_percentiles is not None: 
+            if std_percentiles is not None:
                 sorted_percentiles = std_percentiles.reindex(list(divides_df.index))
                 ax.plot(sorted_percentiles)
             sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
@@ -479,42 +481,23 @@ class SimilarityPairsDBAnalysis:
             return divides_df, ax
         return divides_df
 
-    def batch_db_kde(self, sim="mfpReg_tanimoto", prop="diff_homo", batch_size=10000, zeros_cutoff=1e-10, divide=None,
-                     return_all_d=False, replace=False, set_in_progress=False, **kwargs):
+    def _batch_kde(self, sim="mfpReg_tanimoto", prop="diff_homo", batch_size=10000, zeros_cutoff=1e-10, divide=None, **kwargs):
         """
-        Perform batch Kernel Density Estimation (KDE) analysis on a dataset stored in a 
+        Perform batch Kernel Density Estimation (KDE) analysis on a dataset stored in a
         MongoDB collection and return percent of the top integrated KDE area.
-    
+
         Parameters:
         sim (str): Similarity metric to use for KDE analysis. Default is "mfpReg_tanimoto".
         prop (str): Property to analyze alongside the similarity metric. Default is "diff_homo".
         batch_size (int): Number of documents to process in each batch. Default is 10,000.
         zeros_cutoff (float): Threshold below which the KDE percent is considered zero. Default is 1e-10.
-        return_all_d (bool): Whether to return the detailed results DataFrame. Default is False.
 
         Returns:
         float: Percent of the KDE top area.
         (float, pd.DataFrame): If return_all_d is True, returns a tuple with the average percent and the results.
         """
 
-        # Check of already exists
-        batch_df = pd.read_csv(self.batch_kde_file, index_col=0) if os.path.isfile(
-            self.batch_kde_file) else pd.DataFrame(index=self.sim_cols, columns=self.prop_cols)
-        if not replace and pd.notna(batch_df.at[sim, prop]):
-            print(f"--> KDE Top Area for {sim} and {prop} exists: {batch_df.at[sim, prop]}") if self.verbose else None
-            return (batch_df.at[sim, prop], None) if return_all_d else batch_df.at[sim, prop]
-
-        # Set this divide calculation in progress
-        if set_in_progress:
-            batch_df.at[sim, prop] = "in_progress"
-            batch_df.to_csv(self.batch_kde_file)
-
-        # Calculate the index to skip to reach the top percentile
-        divide = divide or self.find_percentile(sim, percentile=self.percentile)
-        print(f"{sim} {self.percentile} percentile value ({self.top_percent * 100} percentile of top "
-              f"{self.kde_percent * 100}%): ",  divide) if self.verbose > 1 else None
-
-        # Set up batch analysis 
+        # Set up batch analysis
         anal_num = round(self.total_docs * self.kde_percent)
         total_processed = 0
         result_list = []
@@ -529,13 +512,14 @@ class SimilarityPairsDBAnalysis:
             skip_num = total_processed if (total_processed < self.total_docs / 2) else anal_num - (
                     total_processed - current_batch_size)
 
-            if False: #perc < zeros_cutoff:  # The percents keep getting lower. So, if the previous percent is less than the divide, perc ~ 0
+            if perc < zeros_cutoff:  # The percents keep getting lower. So, if the previous percent is less than the divide, perc ~ 0
                 perc, kernel = 0, None
             else:
-                print(f"...Starting query for {current_batch_size}: sorting {sort_dir} and skipping {skip_num}...") if self.verbose > 2 else None
+                print(
+                    f"...Starting query for {current_batch_size}: sorting {sort_dir} and skipping {skip_num}...") if self.verbose > 2 else None
                 with MongoClient(self.mongo_uri) as client:
                     cursor = client[self.mongo_db][self.mongo_coll].find({}, {sim: 1, prop: 1}, allow_disk_use=True).sort(
-                        {sim: sort_dir, prop: 1}).skip(skip_num).limit(current_batch_size)
+                        {sim: sort_dir, prop: 1, "_id": 1}).skip(skip_num).limit(current_batch_size)
                     b_df = pd.DataFrame(list(cursor))
                     b_dfs.append(b_df)
 
@@ -547,7 +531,7 @@ class SimilarityPairsDBAnalysis:
                     perc, kernel = 1 if d_min > divide else 0, None
                 else:
                     perc, kernel = self.kde_integrals(b_df, x_name=sim, y_name=prop, kde_percent=1, top_min=divide,
-                                                      top_percent=self.top_percent, verbose=self.verbose, 
+                                                      top_percent=self.top_percent, verbose=self.verbose,
                                                       plot_dir=self.plot_dir, return_kernel=True, **kwargs)
             result_list.append({"percent": perc, "length": b_df.shape[0], "kernel": kernel})
             print(f"  --> Processed {total_processed} documents. Current KDE analysis ({current_batch_size} docs) "
@@ -562,14 +546,57 @@ class SimilarityPairsDBAnalysis:
         avg_perc = (results["percent"] * results["length"]).sum() / results["length"].sum()
         print(f"KDE Top Area for {sim} and {prop}: {avg_perc}") if self.verbose else None
 
-        # Save batch KDE top percent
-        batch_df.at[sim, prop] = avg_perc
-        batch_df.to_csv(self.batch_kde_file)
-        return (avg_perc, results, b_dfs) if return_all_d else avg_perc
+        return avg_perc, results
 
-    def batch_kde_all_prop(self, sim, **kwargs):
+
+    def db_kde(self, sim="mfpReg_tanimoto", prop="diff_homo", divide=None, batch_size=None,
+                     return_kernel=False, replace=False, set_in_progress=False, **kwargs):
+        """
+        """
+
+        # Check of already exists
+        batch_df = pd.read_csv(self.batch_kde_file, index_col=0) if os.path.isfile(
+            self.batch_kde_file) else pd.DataFrame(index=self.sim_cols, columns=self.prop_cols)
+        if not replace and pd.notna(batch_df.at[sim, prop]):
+            print(f"--> KDE Top Area for {sim} and {prop} exists: {batch_df.at[sim, prop]}") if self.verbose else None
+            return (batch_df.at[sim, prop], None) if return_kernel else batch_df.at[sim, prop]
+
+        # Set this divide calculation in progress
+        if set_in_progress:
+            batch_df.at[sim, prop] = "in_progress"
+            batch_df.to_csv(self.batch_kde_file)
+
+        # Calculate the index to skip to reach the top percentile
+        divide = divide or self.find_percentile(sim, percentile=self.percentile)
+        print(f"{sim} {self.percentile} percentile value ({self.top_percent * 100} percentile of top "
+              f"{self.kde_percent * 100}%): ", divide) if self.verbose > 1 else None
+
+        # Set up batch analysis
+        anal_num = round(self.total_docs * self.kde_percent)
+
+        print(f"Starting analysis for {anal_num} docs...") if self.verbose > 1 else None
+        if batch_size:
+            perc, kernel_results = self._batch_kde(sim=sim, prop=prop, batch_size=batch_size, divide=divide, **kwargs)
+        else:
+            with MongoClient(self.mongo_uri) as client:
+                cursor = client[self.mongo_db][self.mongo_coll].find({}, {sim: 1, prop: 1},
+                                                                     allow_disk_use=True).sort(
+                    {sim: -1, prop: 1, "_id": 1}).limit(anal_num)
+                b_df = pd.DataFrame(list(cursor))
+
+            perc, kernel_results = self.kde_integrals(b_df, x_name=sim, y_name=prop, kde_percent=1, top_min=divide,
+                                              top_percent=self.top_percent, verbose=self.verbose,
+                                              plot_dir=self.plot_dir, return_kernel=True, **kwargs)
+        print(f"KDE Top Area for {sim} and {prop}: {perc}") if self.verbose else None
+
+        # Save batch KDE top percent
+        batch_df.at[sim, prop] = perc
+        batch_df.to_csv(self.batch_kde_file)
+        return (perc, kernel_results) if return_kernel else perc
+
+    def kde_all_prop(self, sim, **kwargs):
         for y in self.prop_cols:
-            avg_perc = self.batch_db_kde(sim=sim, prop=y, divide=self.get_divide(sim), **kwargs)
+            avg_perc = self.db_kde(sim=sim, prop=y, divide=self.get_divide(sim), **kwargs)
             print(f"--> KDE Top Area for {sim} and {y}: {avg_perc}") if self.verbose else None
 
         return pd.read_csv(self.batch_kde_file)
