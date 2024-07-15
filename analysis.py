@@ -449,7 +449,7 @@ class SimilarityPairsDBAnalysis:
         # Set this divide calculation in progress
         if set_in_progress:
             batch_df.at[sim, prop] = "in_progress"
-            batch_df.to_csv(self.divides_file)
+            batch_df.to_csv(self.batch_kde_file)
 
         # Calculate the index to skip to reach the top percentile
         divide = divide or self.find_percentile(sim, percentile=self.percentile)
@@ -475,7 +475,7 @@ class SimilarityPairsDBAnalysis:
             else:
                 print(f"...Starting query: sorting {sort_dir} and skipping {skip_num}...") if self.verbose > 2 else None
                 with MongoClient(self.mongo_uri) as client:
-                    cursor = client[self.mongo_db][self.mongo_coll].find({}, {sim: 1, prop: 1}).sort(
+                    cursor = client[self.mongo_db][self.mongo_coll].find({}, {sim: 1, prop: 1}, allow_disk_use=True).sort(
                         {sim: sort_dir}).skip(skip_num).limit(current_batch_size)
                     b_df = pd.DataFrame(list(cursor))
 
