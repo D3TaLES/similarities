@@ -178,7 +178,8 @@ class SimilarityPairsDBAnalysis:
         Note:
             If `plot_kde` is True, the function will also plot the KDE contour and a vertical line representing the top percentile divide. It will save the plot as an image file.
       """
-        kde_data = data_df.nlargest(round(len(data_df.index) * kde_percent), x_name)
+        data_df.sort_values(by=[x_name, y_name], ascending=[False, True], inplace=True)
+        kde_data = data_df[:int(len(data_df.index) * kde_percent)]
         print(f"KDE percent {x_name} min: {kde_data[x_name].min()}") if verbose > 2 else None
         if prop_abs:
             kde_data[y_name] = kde_data[y_name].apply(abs)
@@ -265,9 +266,8 @@ class SimilarityPairsDBAnalysis:
         with MongoClient(self.mongo_uri) as client:
             print(
                 f"Starting query to select top {size * self.kde_percent} of {size} random docs...") if self.verbose else None
-            results = list(client[self.mongo_db][self.mongo_coll].aggregate(pipeline))
+            results = list(client[self.mongo_db][self.mongo_coll].aggregate(pipeline, allowDiskUse=True))
             df = pd.DataFrame(results).set_index("_id")
-
         return df
 
     def random_kde(self, x="mfpReg_tanimoto", y="diff_homo", size=1000, rand_seed=1, return_df=False, **kwargs):
@@ -393,9 +393,12 @@ class SimilarityPairsDBAnalysis:
 
             # Check if the area_df_csv file exists
             area_df_csv = comp_dir / f"IntegralRatios_{anal_name}_Rand{i:02d}.csv"
-            _working_df = self._get_sample_pairs_df(i=i, size=size, num_trials=num_trials, plot=plot, random=random)
-            _working_df = self._generate_all_kde_df(_working_df)
-            _working_df.to_csv(area_df_csv)
+            if not os.path.isfile(area_df_csv):
+                _working_df = self._get_sample_pairs_df(i=i, size=size, num_trials=num_trials, plot=plot, random=random)
+                _working_df = self._generate_all_kde_df(_working_df)
+                _working_df.to_csv(area_df_csv)
+            else: 
+                _working_df = pd.read_csv(area_df_csv, index_col=0)
 
             # Append the average series of the DataFrame to avg_dfs list
             avg_dfs.append(pd.Series(_working_df.mean(axis=1)))
@@ -518,6 +521,7 @@ class SimilarityPairsDBAnalysis:
         perc = 1
 
         print(f"Starting analysis for {anal_num} docs...") if self.verbose > 1 else None
+        b_dfs = []
         while total_processed < anal_num:
             # Fetch the batch of documents
             current_batch_size = min(batch_size, anal_num - total_processed)
@@ -525,14 +529,13 @@ class SimilarityPairsDBAnalysis:
             skip_num = total_processed if (total_processed < self.total_docs / 2) else anal_num - (
                     total_processed - current_batch_size)
 
-            b_dfs = []
             if False: #perc < zeros_cutoff:  # The percents keep getting lower. So, if the previous percent is less than the divide, perc ~ 0
                 perc, kernel = 0, None
             else:
                 print(f"...Starting query for {current_batch_size}: sorting {sort_dir} and skipping {skip_num}...") if self.verbose > 2 else None
                 with MongoClient(self.mongo_uri) as client:
                     cursor = client[self.mongo_db][self.mongo_coll].find({}, {sim: 1, prop: 1}, allow_disk_use=True).sort(
-                        {sim: sort_dir}).skip(skip_num).limit(current_batch_size)
+                        {sim: sort_dir, prop: 1}).skip(skip_num).limit(current_batch_size)
                     b_df = pd.DataFrame(list(cursor))
                     b_dfs.append(b_df)
 
