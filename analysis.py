@@ -6,6 +6,7 @@ import seaborn as sns
 from scipy import stats
 from pymongo import MongoClient
 import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
 
 from similarities.settings import *
 
@@ -326,8 +327,6 @@ class SimilarityPairsDBAnalysis:
 
     def _randomize_similarities(self, base_df):
         """
-        Generates a DataFrame containing the Kernel Density Estimation (KDE) integrals for specified similarity metrics and properties.
-
         Parameters:
         base_df (pd.DataFrame): DataFrame containing the sample pairs data with similarity metrics and properties.
 
@@ -341,15 +340,30 @@ class SimilarityPairsDBAnalysis:
 
         return base_df
 
-    def _get_sample_pairs_df(self, i, size, num_trials=30, plot=True, random=False):
+    def _correlated_similarities(self, base_df, sim="mfpReg_tanimoto"):
+        """
+        Parameters:
+        base_df (pd.DataFrame): DataFrame containing the sample pairs data with similarity metrics and properties.
+
+        Returns:
+        pd.DataFrame: DataFrame with similarity metrics as rows and properties as columns, containing the KDE integral values.
+        """
+        pd.options.mode.copy_on_write = True
+        num_rows = base_df.shape[0]
+        new_df = base_df.copy()
+        for prop in self.prop_cols:
+            new_df[prop] = MinMaxScaler().fit_transform(np.array(-new_df[sim].abs()).reshape(-1,1))
+            new_df[prop] = new_df[prop] + np.random.normal(0,0.01, num_rows)
+
+        return new_df
+
+    def _get_sample_pairs_df(self, i, size, replace_sim=False, **kwargs):
         """
 
 
         Parameters:
         size (int): Number of documents to sample for each trial.
-        num_trials (int, optional): Number of trials to run. Default is 30.
-        plot (bool, optional): If True, plots the results. Default is True.
-        random (bool, optional): If True, random similarity values are generated
+        replace_sim (bool, optional): 
 
         """
         comp_dir = self.data_dir / "composite_data"
@@ -364,16 +378,24 @@ class SimilarityPairsDBAnalysis:
             _working_df = pd.read_csv(sample_pairs_csv, index_col=0)
 
         # Generate KDE integrals DataFrame and save to CSV
-        if random:
-            random_csv = comp_dir / f"Combo_{size}size_{i:02d}_random.csv"
-            if not os.path.isfile(random_csv):
+        if replace_sim=="random":
+            replace_csv = comp_dir / f"Combo_{size}size_{i:02d}_random.csv"
+            if not os.path.isfile(replace_csv):
                 _working_df = self._randomize_similarities(_working_df)
-                _working_df.to_csv(random_csv)
+                _working_df.to_csv(replace_csv)
             else:
-                _working_df = pd.read_csv(random_csv, index_col=0)
-        return _working_df
+                _working_df = pd.read_csv(replace_csv, index_col=0)
+        
+        elif replace_sim=="correlated":
+            replace_csv = comp_dir / f"Combo_{size}size_{i:02d}_correlated.csv"
+            if not os.path.isfile(replace_csv):
+                _working_df = self._correlated_similarities(_working_df, **kwargs)
+                _working_df.to_csv(replace_csv)
+            else:
+                _working_df = pd.read_csv(replace_csv, index_col=0)
+        return _working_df[self.sim_cols + self.prop_cols]
 
-    def rand_composite(self, size, num_trials=30, plot=True, random=False, ylims=None, ax=None):
+    def rand_composite(self, size, num_trials=30, plot=True, replace_sim=None, ylims=None, ax=None, std_values=None, return_plot=True):
         """
         Performs a composite analysis by sampling multiple datasets, applying KDE analysis, and aggregating results.
 
@@ -387,14 +409,14 @@ class SimilarityPairsDBAnalysis:
         comp_dir = self.data_dir / "composite_data"
 
         # Iterate through multiple trials
-        anal_name = f"{size}size_{self.perc_name}" + ("_random" if random else "")
+        anal_name = f"{size}size_{self.perc_name}" + ("_" + replace_sim if replace_sim else "")
         for i in range(num_trials):
             print("Creating data sample with random seed {}...".format(i)) if self.verbose else None
 
             # Check if the area_df_csv file exists
             area_df_csv = comp_dir / f"IntegralRatios_{anal_name}_Rand{i:02d}.csv"
             if not os.path.isfile(area_df_csv):
-                _working_df = self._get_sample_pairs_df(i=i, size=size, num_trials=num_trials, plot=plot, random=random)
+                _working_df = self._get_sample_pairs_df(i=i, size=size, replace_sim=replace_sim)
                 _working_df = self._generate_all_kde_df(_working_df)
                 _working_df.to_csv(area_df_csv)
             else: 
@@ -415,11 +437,17 @@ class SimilarityPairsDBAnalysis:
 
         # Plotting if plot=True
         if plot:
-            mean_row, std_row = avg_df.mean(axis=1), avg_df.std(axis=1)
             ax = sns.scatterplot(avg_df, s=10, ax=ax)
+            if std_values is not None:
+                sorted_values = std_values.reindex(list(avg_df.index))
+                std_mean, std_stdev = sorted_values.mean(axis=1), sorted_values.std(axis=1)
+                ax.plot(std_mean, label='Mean', color='red')
+                ax.fill_between(std_mean.index, std_mean - std_stdev, std_mean + std_stdev, color='red', alpha=0.2,
+                            label='Full Dataset Values')
+            mean_row, std_row = avg_df.mean(axis=1), avg_df.std(axis=1)
             ax.plot(mean_row, label='Mean', color='blue')
             ax.fill_between(mean_row.index, mean_row - std_row, mean_row + std_row, color='blue', alpha=0.2,
-                            label='1 Std Dev')
+                        label='1 Std Dev')
             sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
             ax.set_xticks(range(0, len(avg_df.index)), avg_df.index, rotation="vertical", fontsize=10)
             if ylims:
@@ -430,10 +458,11 @@ class SimilarityPairsDBAnalysis:
             plt.tight_layout()
             plt.savefig(self.plot_dir / f"AvgIntegralRatios_{anal_name}_{num_trials:02d}trials.png", dpi=300)
             print("Done. Plots saved") if self.verbose else None
-            return ax
+            if return_plot: 
+                return ax
         return avg_df
 
-    def rand_composite_percentiles(self, size, num_trials=30, plot=True, random=False, ylims=None, ax=None,
+    def rand_composite_percentiles(self, size, num_trials=30, plot=True, replace_sim=None, ylims=None, ax=None,
                                    std_percentiles=None):
         """
         Performs a composite analysis by sampling multiple datasets, applying KDE analysis, and aggregating results.
@@ -448,9 +477,9 @@ class SimilarityPairsDBAnalysis:
         comp_dir = self.data_dir / "composite_data"
 
         # Iterate through multiple trials
-        anal_name = f"{size}size_{self.perc_name}" + ("_random" if random else "")
+        anal_name = f"{size}size_{self.perc_name}" + (replace_sim if replace_sim else "")
         for i in range(num_trials):
-            working_df = self._get_sample_pairs_df(i=i, size=size, num_trials=num_trials, plot=plot, random=random)
+            working_df = self._get_sample_pairs_df(i=i, size=size, replace_sim=replace_sim)
             for sim in self.sim_cols:
                 divide = working_df[sim].quantile(self.percentile / 100)
                 divides_df.at[sim, i] = divide
