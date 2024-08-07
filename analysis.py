@@ -1,87 +1,24 @@
 import os
+import random
 import pymongo
 import numpy as np
 import pandas as pd
+from math import comb
 import seaborn as sns
+from rdkit import Chem
 from scipy import stats
 from pymongo import MongoClient
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
+from rdkit.DataStructs.cDataStructs import ExplicitBitVect
 
 from similarities.settings import *
 
 
-def get_bin_data(x, y, df, bin_num=20, top_bin_edge=None):
-    """
-      Get binned data for plotting.
-
-      Args:
-          x (str): Name of the column representing the independent variable.
-          y (str): Name of the column representing the dependent variable.
-          df (DataFrame): Dataframe containing the data.
-          bin_num (int, optional): Number of bins.
-          top_bin_edge (float, optional): Upper limit for the bin edges.
-
-      Returns:
-          DataFrame: Dataframe containing binned data.
-      """
-    bin_intvs = pd.cut(df[x], bins=bin_num)
-    if top_bin_edge:
-        max_x = float(df[x].max())
-        bin_intvs = bin_intvs.apply(lambda x: x if x.left <= top_bin_edge else pd.Interval(top_bin_edge, max_x))
-    sim_groups = df.groupby(bin_intvs)
-    bin_df = sim_groups[y].agg(["count", "mean", "std"])
-    bin_df['intvl_mid'] = bin_df.apply(lambda x: x.name.mid, axis=1)
-    return bin_df
-
-
-def compare_plt(x, y, df, bin_num=20, top_bin_edge=None, prop_abs=True, save=True, bin_data=True, name_tag=""):
-    """
-      Compare and plot data.
-
-      Args:
-          x (str): Name of the column representing the independent variable.
-          y (str): Name of the column representing the dependent variable.
-          df (DataFrame, optional): Dataframe containing the data.
-          bin_num (int, optional): Number of bins.
-          top_bin_edge (float, optional): Upper limit for the bin edges.
-          prop_abs (bool, optional): Whether to use the absolute value of the dependent variable.
-          save (bool, optional): Whether to save the plot.
-          bin_data (bool): Whether to bin data
-          name_tag (str, optional): output file name tag
-
-      Returns:
-          None
-      """
-    plot_df = df[[x, y]]
-    if prop_abs:
-        plot_df[y] = plot_df[y].apply(abs)
-
-    # Plot
-    print("Plotting data points.")
-    sns.jointplot(plot_df, x=x, y=y, kind='hex', bins="log", dropna=True)
-    # plt.scatter(plot_df[x], plot_df[y], alpha=0.2, marker='.')
-    ax = plt.gca()
-    print("Plotting std. dev. bars")
-    if bin_data:
-        print("Binning data. ")
-        bin_df = get_bin_data(x=x, y=y, df=plot_df, bin_num=bin_num, top_bin_edge=top_bin_edge)
-        ax.errorbar(bin_df["intvl_mid"], bin_df["mean"], yerr=bin_df["std"], fmt=".", color='darkorange', elinewidth=2)
-        ax.legend(["Compared Mols", "Fitted Boundary", "Bin Mean & Std. Dev."])
-    ax.set_xlabel("Similarity ({} finderprint / {} similarity score)".format(*x.split("_")))
-    ax.set_ylabel("{}Difference in {} values".format("Absolute " if prop_abs else "", y.split("_")[1].upper()))
-    if save:
-        plt.savefig(PLOT_DIR / f"SinglePlt{name_tag}_{x}_{y.strip('diff_')}{'_abs' if prop_abs else ''}.png",
-                    dpi=300)
-
-    return ax
-
-
-class SimilarityPairsDBAnalysis:
-    def __init__(self, kde_percent, top_percent,
-                 total_docs=353314653, verbose=3,
-                 elec_props=ELEC_PROPS, sim_metrics=SIM_METRICS, fp_gens=FP_GENS,
-                 mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll=MONGO_PAIRS_COLL):
+class SimilarityAnalysisBase:
+    def __init__(self, kde_percent: float, top_percent: float,
+                 verbose: int = 3, anal_name: str = "SimAnalysis",
+                 elec_props: list = ELEC_PROPS, sim_metrics: dict = SIM_METRICS, fp_gens: dict = FP_GENS):
         """
 
         Parameters:
@@ -97,11 +34,8 @@ class SimilarityPairsDBAnalysis:
         mongo_coll (str): MongoDB collection name. Default is MONGO_PAIRS_COLL.
 
         """
-        self.mongo_uri = mongo_uri
-        self.mongo_db = mongo_db
-        self.mongo_coll = mongo_coll
+        self.total_docs = self._get_total_docs()
         self.verbose = verbose
-        self.total_docs = total_docs or self._get_total_docs()
 
         self.kde_percent = kde_percent / 100 if kde_percent > 1 else kde_percent
         self.top_percent = top_percent / 100 if top_percent > 1 else top_percent
@@ -109,46 +43,16 @@ class SimilarityPairsDBAnalysis:
         self.perc_name = f"kde{int(self.kde_percent * 100):02d}_{int(self.top_percent * 100):02d}top"
         self.prop_cols = [f"diff_{ep}" for ep in elec_props]
         self.sim_cols = [f"{fp}_{s.lower()}" for fp in fp_gens.keys() for s in sim_metrics.keys()]
+        self.sim_metrics = sim_metrics
+        self.elec_props = elec_props
+        self.fp_dict = fp_gens
 
-        self.data_dir = DATA_DIR / mongo_coll
+        self.data_dir = DATA_DIR / anal_name
         os.makedirs(self.data_dir, exist_ok=True)
-        self.plot_dir = PLOT_DIR / mongo_coll
+        self.plot_dir = PLOT_DIR / anal_name
         os.makedirs(self.plot_dir, exist_ok=True)
         self.batch_kde_file = self.data_dir / f"IntegralRatios_allDB_{self.perc_name}.csv"
         self.divides_file = self.data_dir / f"TopDivides_DB_percentile{int(self.percentile):02d}.csv"
-
-    def _get_total_docs(self):
-        print("Starting total number of docs query...") if self.verbose else None
-        with MongoClient(self.mongo_uri) as client:
-            return client[self.mongo_db][self.mongo_coll].count_documents({})
-
-    def find_percentile(self, field, percentile):
-        """
-        Finds the value at a specified percentile for a given field in a MongoDB collection.
-
-        Parameters:
-        field (str): The field for which the percentile value is to be calculated.
-        percentile (float): The percentile to find (between 0 and 100).
-
-        Returns:
-        float: The value at the specified percentile for the given field.
-        """
-        percentile = percentile or self.percentile
-        if percentile < 50:
-            sort_dir = pymongo.ASCENDING
-            percentile_idx = int(self.total_docs * (percentile / 100))
-        else:
-            sort_dir = pymongo.DESCENDING
-            percentile_idx = int(self.total_docs * ((100 - percentile) / 100))
-        print(f"Percentile index {percentile_idx} out of total {self.total_docs} documents.") if self.verbose else None
-
-        print("Starting sort and skip query..") if self.verbose > 2 else None
-        with MongoClient(self.mongo_uri) as client:
-            doc = client[self.mongo_db][self.mongo_coll].find_one({}, {field: 1}, sort=[(field, sort_dir)],
-                                                                  skip=percentile_idx,
-                                                                  allow_disk_use=True)
-
-            return doc[field]
 
     @staticmethod
     def kde_integrals(data_df, kde_percent=1, top_percent=0.10, x_name="mfpReg_tanimoto", y_name="diff_homo",
@@ -171,7 +75,7 @@ class SimilarityPairsDBAnalysis:
             plot_3d (bool, optional): Whether to plot the KDE in 3D. Default is False.
             save_fig (bool, optional): Whether to save KDE plot. Default is True.
             plot_dir (str, optional):
-            verbose (int, optiona): Verbosity level (0 = silent, 1 = minimal output, 2 = detailed output).
+            verbose (int, optional): Verbosity level (0 = silent, 1 = minimal output, 2 = detailed output).
             return_kernel (bool, optional): Whether to return the kernel. Default is False.
 
         Returns:
@@ -245,32 +149,11 @@ class SimilarityPairsDBAnalysis:
                             dpi=300)
         return (percent_top_area, kernel) if return_kernel else percent_top_area
 
-    def _random_sample(self, x=None, y=None, kde_percent=None, size=1000):
-        """
-        Retrieves a random sample of documents from a MongoDB collection, with options to sort, limit, and project specific fields.
+    def _get_total_docs(self):
+        raise NotImplementedError
 
-        Parameters:
-        x (str, optional): Field to sort by in descending order. Default is None.
-        y (str, optional): Additional field to include in the projection. Default is None.
-        size (int, optional): Number of documents to sample. Default is 1000.
-
-        Returns:
-        pd.DataFrame: DataFrame containing the sampled documents, indexed by MongoDB's `_id` field.
-        """
-        # Create the aggregation pipeline for MongoDB
-        pipeline = [{"$sample": {"size": size}}]  # Randomly select 'size' number of documents
-        pipeline.append(
-            {"$limit": size * kde_percent}) if kde_percent else None  # Limit to the top 'num_top_docs' documents
-        pipeline.append({"$sort": {x: -1}}) if x else None  # Sort by the specified field in ascending order
-        pipeline.append({'$project': {v: 1 for v in [x, y] if v}}) if (
-                x or y) else None  # Include only the fields 'x' and 'y'
-
-        with MongoClient(self.mongo_uri) as client:
-            print(
-                f"Starting query to select top {size * self.kde_percent} of {size} random docs...") if self.verbose else None
-            results = list(client[self.mongo_db][self.mongo_coll].aggregate(pipeline, allowDiskUse=True))
-            df = pd.DataFrame(results).set_index("_id")
-        return df
+    def _random_sample(self, size=1000, **kwargs):
+        raise NotImplementedError
 
     def random_kde(self, x="mfpReg_tanimoto", y="diff_homo", size=1000, rand_seed=1, return_df=False, **kwargs):
         """
@@ -288,12 +171,12 @@ class SimilarityPairsDBAnalysis:
         """
         sample_pairs_csv = self.data_dir / "composite_data" / f"Combo_{size}size_{rand_seed:02d}.csv"
         if not os.path.isfile(sample_pairs_csv):
-            df = self._random_sample(x=x, y=y, size=size)
+            df = self._random_sample(size=size)
         else:
             df = pd.read_csv(sample_pairs_csv, index_col=0)
         print("Starting analysis...") if self.verbose else None
-        perc = self.kde_integrals(df, x_name=x, y_name=y, kde_percent=1, plot_dir=self.plot_dir, verbose=self.verbose,
-                                  **kwargs)
+        perc = self.kde_integrals(df, x_name=x, y_name=y, kde_percent=self.kde_percent, plot_dir=self.plot_dir,
+                                  verbose=self.verbose, **kwargs)
         return (perc, df) if return_df else perc
 
     def _generate_all_kde_df(self, sample_pairs_df, **kwargs):
@@ -352,15 +235,13 @@ class SimilarityPairsDBAnalysis:
         num_rows = base_df.shape[0]
         new_df = base_df.copy()
         for prop in self.prop_cols:
-            new_df[prop] = MinMaxScaler().fit_transform(np.array(-new_df[sim].abs()).reshape(-1,1))
-            new_df[prop] = new_df[prop] + np.random.normal(0,0.01, num_rows)
+            new_df[prop] = MinMaxScaler().fit_transform(np.array(-new_df[sim].abs()).reshape(-1, 1))
+            new_df[prop] = new_df[prop] + np.random.normal(0, 0.01, num_rows)
 
         return new_df
 
     def _get_sample_pairs_df(self, i, size, replace_sim=False, **kwargs):
         """
-
-
         Parameters:
         size (int): Number of documents to sample for each trial.
         replace_sim (bool, optional): 
@@ -378,15 +259,15 @@ class SimilarityPairsDBAnalysis:
             _working_df = pd.read_csv(sample_pairs_csv, index_col=0)
 
         # Generate KDE integrals DataFrame and save to CSV
-        if replace_sim=="random":
+        if replace_sim == "random":
             replace_csv = comp_dir / f"Combo_{size}size_{i:02d}_random.csv"
             if not os.path.isfile(replace_csv):
                 _working_df = self._randomize_similarities(_working_df)
                 _working_df.to_csv(replace_csv)
             else:
                 _working_df = pd.read_csv(replace_csv, index_col=0)
-        
-        elif replace_sim=="correlated":
+
+        elif replace_sim == "correlated":
             replace_csv = comp_dir / f"Combo_{size}size_{i:02d}_correlated.csv"
             if not os.path.isfile(replace_csv):
                 _working_df = self._correlated_similarities(_working_df, **kwargs)
@@ -395,7 +276,8 @@ class SimilarityPairsDBAnalysis:
                 _working_df = pd.read_csv(replace_csv, index_col=0)
         return _working_df[self.sim_cols + self.prop_cols]
 
-    def rand_composite(self, size, num_trials=30, plot=True, replace_sim=None, ylims=None, ax=None, std_values=None, return_plot=True):
+    def rand_composite(self, size, num_trials=30, plot=True, replace_sim=None, ylims=None, ax=None, std_values=None,
+                       return_plot=True):
         """
         Performs a composite analysis by sampling multiple datasets, applying KDE analysis, and aggregating results.
 
@@ -419,7 +301,7 @@ class SimilarityPairsDBAnalysis:
                 _working_df = self._get_sample_pairs_df(i=i, size=size, replace_sim=replace_sim)
                 _working_df = self._generate_all_kde_df(_working_df)
                 _working_df.to_csv(area_df_csv)
-            else: 
+            else:
                 _working_df = pd.read_csv(area_df_csv, index_col=0)
 
             # Append the average series of the DataFrame to avg_dfs list
@@ -443,11 +325,11 @@ class SimilarityPairsDBAnalysis:
                 std_mean, std_stdev = sorted_values.mean(axis=1), sorted_values.std(axis=1)
                 ax.plot(std_mean, label='Mean', color='red')
                 ax.fill_between(std_mean.index, std_mean - std_stdev, std_mean + std_stdev, color='red', alpha=0.2,
-                            label='Full Dataset Values')
+                                label='Full Dataset Values')
             mean_row, std_row = avg_df.mean(axis=1), avg_df.std(axis=1)
             ax.plot(mean_row, label='Mean', color='blue')
             ax.fill_between(mean_row.index, mean_row - std_row, mean_row + std_row, color='blue', alpha=0.2,
-                        label='1 Std Dev')
+                            label='1 Std Dev')
             sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
             ax.set_xticks(range(0, len(avg_df.index)), avg_df.index, rotation="vertical", fontsize=10)
             if ylims:
@@ -458,7 +340,7 @@ class SimilarityPairsDBAnalysis:
             plt.tight_layout()
             plt.savefig(self.plot_dir / f"AvgIntegralRatios_{anal_name}_{num_trials:02d}trials.png", dpi=300)
             print("Done. Plots saved") if self.verbose else None
-            if return_plot: 
+            if return_plot:
                 return ax
         return avg_df
 
@@ -510,7 +392,205 @@ class SimilarityPairsDBAnalysis:
             return divides_df, ax
         return divides_df
 
-    def _batch_kde(self, sim="mfpReg_tanimoto", prop="diff_homo", batch_size=10000, zeros_cutoff=1e-10, divide=None, **kwargs):
+
+class SimilarityAnalysisRand(SimilarityAnalysisBase):
+    def __init__(self, kde_percent: float, top_percent: float, orig_df: pd.DataFrame = None, smiles_pickle: str = None,
+                 verbose: int = 3, anal_name: str = "SimAnalysis", elec_props: list = ELEC_PROPS,
+                 sim_metrics: dict = SIM_METRICS, fp_gens: dict = FP_GENS):
+        """
+
+        Parameters:
+        kde_percent (float):
+        top_percent (float):
+        total_docs (int):
+        verbose (int): Verbosity level (0 = silent, 1 = minimal output, 2 = detailed output).
+        elec_props (list): List of electronic properties to calculate differences.
+        sim_metrics (dict): Dictionary of similarity metrics to calculate.
+        fp_gens (dict): Dictionary of fingerprint generation methods.
+        mongo_uri (str): MongoDB connection URI.
+        mongo_db (str): MongoDB database name.
+        mongo_coll (str): MongoDB collection name. Default is MONGO_PAIRS_COLL.
+
+        """
+        super().__init__(kde_percent=kde_percent, top_percent=top_percent, verbose=verbose, anal_name=anal_name,
+                         elec_props=elec_props, sim_metrics=sim_metrics, fp_gens=fp_gens)
+        self.molecules_df = self._generate_molecules_df(orig_df=orig_df, smiles_pickle=smiles_pickle)
+        self.all_ids = self.molecules_df.index.tolist()
+
+    def _generate_molecules_df(self, orig_df: pd.DataFrame = None, smiles_pickle: str = None):
+        """
+        Generates a DataFrame of molecules with specified fingerprints from either an original DataFrame or a pickle file
+        containing SMILES strings.
+
+        Parameters:
+        orig_df (pd.DataFrame): Original DataFrame containing SMILES strings and/or molecular objects.
+        smiles_pickle (str): Path to a pickle file containing a DataFrame with SMILES strings.
+        fp_dict (dict): Dictionary of fingerprint generation methods.
+
+        Returns:
+        pd.DataFrame: DataFrame containing molecules with generated fingerprints.
+            """
+        if not orig_df:
+            if not os.path.isfile(smiles_pickle):
+                raise IOError("No DF pickle file found at {}. This function requires either an original_df argument or"
+                              "a valid DF pickle file location".format(smiles_pickle))
+            orig_df = pd.read_pickle(smiles_pickle)
+
+        if 'mol' not in orig_df.columns:
+            if 'smiles' not in orig_df.columns:
+                raise KeyError(f'Column "smiles" not found in {smiles_pickle} columns')
+            orig_df['mol'] = orig_df.smiles.apply(lambda x: Chem.MolFromSmiles(x))
+        for fp_name, fpgen in self.fp_dict.items():
+            print(f"FP Generation Method: {fp_name}")
+            if fp_name not in orig_df.columns:
+                orig_df[fp_name] = orig_df.mol.apply(lambda x: fpgen(x).ToBase64())
+            else:
+                orig_df[fp_name] = orig_df[fp_name].apply(lambda x: x.ToBase64())
+        return orig_df
+
+    def _get_total_docs(self):
+        num_mols = self.molecules_df.shape[0]
+        return comb(num_mols, 2)
+
+    def _rand_id(self):
+        id_1 = id_2 = random.choice(self.all_ids)
+        while id_1 == id_2:
+            id_2 = random.choice(self.all_ids)
+        return "__".join(sorted([str(id_1), str(id_2)]))
+
+    def _get_pair_data(self, pair_id, elec_props=None, fp_dict=None, sim_metrics=None):
+        """
+        """
+        id_1, id_2 = pair_id.split("__")
+        id_1_dict = self.molecules_df.loc[id_1].to_dict()
+        id_2_dict = self.molecules_df.loc[id_2].to_dict()
+
+        insert_data = {"_id": pair_id, "id_1": id_1, "id_2": id_2}
+        # Add electronic property differences
+        for ep in (elec_props or self.elec_props):
+            insert_data["diff_" + ep] = id_1_dict[ep] - id_2_dict[ep]
+
+        # Add similarity metrics
+        for fp in (fp_dict or self.fp_dict).keys():
+            print(f"FP Generation Method: {fp}") if self.verbose > 3 else None
+            for sim, SimCalc in (sim_metrics or self.sim_metrics).items():
+                print(f"\tSimilarity {sim}") if self.verbose > 3 else None
+                metric_name = f"{fp}_{sim.lower()}"
+                fp1 = ExplicitBitVect(2048)
+                fp1.FromBase64(id_1_dict[fp])
+                fp2 = ExplicitBitVect(2048)
+                fp2.FromBase64(id_2_dict[fp])
+                similarity = SimCalc(fp1, fp2)
+                insert_data[f"{metric_name}"] = similarity
+        return insert_data
+
+    def _random_sample(self, size=1000, **kwargs):
+        """
+        """
+        ids = set([self._rand_id() for _ in range(size)])
+        while len(ids) < size:
+            ids = set(list(ids) + [self._rand_id()])
+
+        print(f"Generating ") if self.verbose > 3 else None
+        all_data = [self._get_pair_data(i, **kwargs) for i in ids]
+
+        sample_df = pd.DataFrame(all_data)
+        sample_df.set_index("_id", inplace=True)
+        return sample_df
+
+
+class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
+    def __init__(self, kde_percent, top_percent,
+                 total_docs=353314653, verbose=3,
+                 elec_props=ELEC_PROPS, sim_metrics=SIM_METRICS, fp_gens=FP_GENS,
+                 mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll=MONGO_PAIRS_COLL):
+        """
+
+        Parameters:
+        kde_percent (float):
+        top_percent (float):
+        total_docs (int):
+        verbose (int): Verbosity level (0 = silent, 1 = minimal output, 2 = detailed output).
+        elec_props (list): List of electronic properties to calculate differences.
+        sim_metrics (dict): Dictionary of similarity metrics to calculate.
+        fp_gens (dict): Dictionary of fingerprint generation methods.
+        mongo_uri (str): MongoDB connection URI.
+        mongo_db (str): MongoDB database name.
+        mongo_coll (str): MongoDB collection name. Default is MONGO_PAIRS_COLL.
+
+        """
+        self.total_docs = total_docs
+        super().__init__(kde_percent=kde_percent, top_percent=top_percent, verbose=verbose, anal_name=mongo_coll,
+                         elec_props=elec_props, sim_metrics=sim_metrics, fp_gens=fp_gens)
+        self.mongo_uri = mongo_uri
+        self.mongo_db = mongo_db
+        self.mongo_coll = mongo_coll
+
+    def _get_total_docs(self):
+        if self.total_docs:
+            return self.total_docs
+        print("Starting total number of docs query...") if self.verbose else None
+        with MongoClient(self.mongo_uri) as client:
+            return client[self.mongo_db][self.mongo_coll].count_documents({})
+
+    def find_percentile(self, field, percentile):
+        """
+        Finds the value at a specified percentile for a given field in a MongoDB collection.
+
+        Parameters:
+        field (str): The field for which the percentile value is to be calculated.
+        percentile (float): The percentile to find (between 0 and 100).
+
+        Returns:
+        float: The value at the specified percentile for the given field.
+        """
+        percentile = percentile or self.percentile
+        if percentile < 50:
+            sort_dir = pymongo.ASCENDING
+            percentile_idx = int(self.total_docs * (percentile / 100))
+        else:
+            sort_dir = pymongo.DESCENDING
+            percentile_idx = int(self.total_docs * ((100 - percentile) / 100))
+        print(f"Percentile index {percentile_idx} out of total {self.total_docs} documents.") if self.verbose else None
+
+        print("Starting sort and skip query..") if self.verbose > 2 else None
+        with MongoClient(self.mongo_uri) as client:
+            doc = client[self.mongo_db][self.mongo_coll].find_one({}, {field: 1}, sort=[(field, sort_dir)],
+                                                                  skip=percentile_idx,
+                                                                  allow_disk_use=True)
+
+            return doc[field]
+
+    def _random_sample(self, x=None, y=None, kde_percent=None, size=1000):
+        """
+        Retrieves a random sample of documents from a MongoDB collection, with options to sort, limit,
+        and project specific fields.
+
+        Parameters:
+        x (str, optional): Field to sort by in descending order. Default is None.
+        y (str, optional): Additional field to include in the projection. Default is None.
+        size (int, optional): Number of documents to sample. Default is 1000.
+
+        Returns:
+        pd.DataFrame: DataFrame containing the sampled documents, indexed by MongoDB's `_id` field.
+        """
+        # Create the aggregation pipeline for MongoDB
+        pipeline = [{"$sample": {"size": size}}]  # Randomly select 'size' number of documents
+        pipeline.append(
+            {"$limit": size * kde_percent}) if kde_percent else None  # Limit to the top 'num_top_docs' documents
+        pipeline.append({"$sort": {x: -1}}) if x else None  # Sort by the specified field in ascending order
+        pipeline.append({'$project': {v: 1 for v in [x, y] if v}}) if (
+                x or y) else None  # Include only the fields 'x' and 'y'
+
+        with MongoClient(self.mongo_uri) as client:
+            print(f"Starting query to select top {size * self.kde_percent} of {size} "
+                  f"random docs...") if self.verbose else None
+            results = list(client[self.mongo_db][self.mongo_coll].aggregate(pipeline, allowDiskUse=True))
+            df = pd.DataFrame(results).set_index("_id")
+        return df
+
+    def _batch_kde(self, sim="mfpReg_tanimoto", prop="diff_homo", batch_size=10000, zeros_cutoff=1e-10, divide=None,
+                   **kwargs):
         """
         Perform batch Kernel Density Estimation (KDE) analysis on a dataset stored in a
         MongoDB collection and return percent of the top integrated KDE area.
@@ -541,13 +621,14 @@ class SimilarityPairsDBAnalysis:
             skip_num = total_processed if (total_processed < self.total_docs / 2) else anal_num - (
                     total_processed - current_batch_size)
 
-            if perc < zeros_cutoff:  # The percents keep getting lower. So, if the previous percent is less than the divide, perc ~ 0
+            if perc < zeros_cutoff:  # The percents keep getting lower. So, if the previous percent < divide, perc ~ 0
                 perc, kernel = 0, None
             else:
-                print(
-                    f"...Starting query for {current_batch_size}: sorting {sort_dir} and skipping {skip_num}...") if self.verbose > 2 else None
+                print(f"...Starting query for {current_batch_size}: sorting {sort_dir} and skipping "
+                      f"{skip_num}...") if self.verbose > 2 else None
                 with MongoClient(self.mongo_uri) as client:
-                    cursor = client[self.mongo_db][self.mongo_coll].find({}, {sim: 1, prop: 1}, allow_disk_use=True).sort(
+                    cursor = client[self.mongo_db][self.mongo_coll].find({}, {sim: 1, prop: 1},
+                                                                         allow_disk_use=True).sort(
                         {sim: sort_dir, prop: 1, "_id": 1}).skip(skip_num).limit(current_batch_size)
                     b_df = pd.DataFrame(list(cursor))
                     b_dfs.append(b_df)
@@ -556,7 +637,7 @@ class SimilarityPairsDBAnalysis:
                 d_min, d_max = b_df[sim].min(), b_df[sim].max()
                 print(f"  --> DF min {d_min}, DF max {d_max}") if self.verbose > 2 else None
 
-                if d_min == d_max:  # If the DF covers no range, the percent KDE will fail. 
+                if d_min == d_max:  # If the DF covers no range, the percent KDE will fail.
                     perc, kernel = 1 if d_min > divide else 0, None
                 else:
                     perc, kernel = self.kde_integrals(b_df, x_name=sim, y_name=prop, kde_percent=1, top_min=divide,
@@ -577,9 +658,8 @@ class SimilarityPairsDBAnalysis:
 
         return avg_perc, results
 
-
     def db_kde(self, sim="mfpReg_tanimoto", prop="diff_homo", divide=None, batch_size=None,
-                     return_kernel=False, replace=False, set_in_progress=False, **kwargs):
+               return_kernel=False, replace=False, set_in_progress=False, **kwargs):
         """
         """
 
@@ -614,8 +694,8 @@ class SimilarityPairsDBAnalysis:
                 b_df = pd.DataFrame(list(cursor))
 
             perc, kernel_results = self.kde_integrals(b_df, x_name=sim, y_name=prop, kde_percent=1, top_min=divide,
-                                              top_percent=self.top_percent, verbose=self.verbose,
-                                              plot_dir=self.plot_dir, return_kernel=True, **kwargs)
+                                                      top_percent=self.top_percent, verbose=self.verbose,
+                                                      plot_dir=self.plot_dir, return_kernel=True, **kwargs)
         print(f"KDE Top Area for {sim} and {prop}: {perc}") if self.verbose else None
 
         # Save batch KDE top percent
@@ -627,12 +707,6 @@ class SimilarityPairsDBAnalysis:
         for y in self.prop_cols:
             avg_perc = self.db_kde(sim=sim, prop=y, divide=self.get_divide(sim), **kwargs)
             print(f"--> KDE Top Area for {sim} and {y}: {avg_perc}") if self.verbose else None
-
-        return pd.read_csv(self.batch_kde_file)
-
-    def batch_kde_all(self, **kwargs):
-        for x in self.sim_cols:
-            self.batch_kde_all_prop(sim=x, **kwargs)
 
         return pd.read_csv(self.batch_kde_file)
 
@@ -664,13 +738,3 @@ class SimilarityPairsDBAnalysis:
         for x in self.sim_cols:
             self.get_divide(x, replace=replace)
         return pd.read_csv(self.divides_file)
-
-    def plot_area_df(self, **kwargs):
-        area_df = self.batch_kde_all(**kwargs)
-        area_df.sort_values("diff_homo", inplace=True)
-        area_df.plot(figsize=(10, 6))
-        plt.xticks(range(0, len(area_df.index)), area_df.index, rotation="vertical", fontsize=10)
-        plt.xlabel("Similarity metric")
-        plt.ylabel("Ratio of the KDE integral of the top data percentile ")
-        plt.tight_layout()
-        plt.savefig(os.path.join(self.plot_dir, f"IntegralRatios_{self.perc_name}.png"), dpi=300)

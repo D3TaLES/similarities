@@ -4,7 +4,7 @@ import pandas as pd
 from contextlib import closing
 
 from similarities.settings import *
-from similarities.generate import generate_molecules_df
+from similarities.generate_db import generate_molecules_df
 
 
 # ---------- SQL Utils ----------
