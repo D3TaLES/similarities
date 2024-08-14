@@ -208,6 +208,29 @@ class SimilarityAnalysisBase:
 
         return area_df
 
+    def _generate_all_nhr_df(self, sample_pairs_df):
+        """
+        Parameters:
+        sample_pairs_df (pd.DataFrame): DataFrame containing the sample pairs data with similarity metrics and properties.
+
+        Returns:
+        pd.DataFrame: DataFrame with similarity metrics as rows and properties as columns, containing the KDE integral values.
+        """
+        # Initialize DataFrame to store KDE integral results
+        area_df = pd.DataFrame(index=range(len(self.sim_cols)), columns=[])
+        area_df["sim"] = self.sim_cols
+        sample_pairs_df.fillna(0, inplace=True)
+        print("--> Starting NHR integral analysis.") if self.verbose > 0 else None
+        from similarities.neighborhood_ratios import neighborhood_ratio
+        for prop in self.prop_cols:
+            area_df[prop] = area_df.apply(lambda x: neighborhood_ratio(sample_pairs_df, x_name=x.sim, y_name=prop), axis=1)
+            print("--> Finished NHR integral analysis for {}.".format(prop)) if self.verbose > 1 else None
+        area_df.set_index("sim", inplace=True)
+        if "diff_hl" in area_df.columns:
+            area_df.sort_values("diff_hl", inplace=True)
+
+        return area_df
+
     def _randomize_similarities(self, base_df):
         """
         Parameters:
@@ -277,7 +300,7 @@ class SimilarityAnalysisBase:
         return _working_df[self.sim_cols + self.prop_cols]
 
     def rand_composite(self, size, num_trials=30, plot=True, replace_sim=None, ylims=None, ax=None, std_values=None,
-                       return_plot=True):
+                       return_plot=True, neighborhood=False):
         """
         Performs a composite analysis by sampling multiple datasets, applying KDE analysis, and aggregating results.
 
@@ -289,6 +312,7 @@ class SimilarityAnalysisBase:
         """
         avg_dfs = []
         comp_dir = self.data_dir / "composite_data"
+        ratio_name = "NeighborhoodRatios" if neighborhood else "IntegralRatios"
 
         # Iterate through multiple trials
         anal_name = f"{size}size_{self.perc_name}" + ("_" + replace_sim if replace_sim else "")
@@ -296,10 +320,10 @@ class SimilarityAnalysisBase:
             print("Creating data sample with random seed {}...".format(i)) if self.verbose else None
 
             # Check if the area_df_csv file exists
-            area_df_csv = comp_dir / f"IntegralRatios_{anal_name}_Rand{i:02d}.csv"
+            area_df_csv = comp_dir / f"{ratio_name}_{anal_name}_Rand{i:02d}.csv"
             if not os.path.isfile(area_df_csv):
                 _working_df = self._get_sample_pairs_df(i=i, size=size, replace_sim=replace_sim)
-                _working_df = self._generate_all_kde_df(_working_df)
+                _working_df = self._generate_all_nhr_df(_working_df) if neighborhood else self._generate_all_kde_df(_working_df)
                 _working_df.to_csv(area_df_csv)
             else:
                 _working_df = pd.read_csv(area_df_csv, index_col=0)
@@ -315,7 +339,7 @@ class SimilarityAnalysisBase:
         avg_df = avg_df.reindex(sort_value.index)
 
         # Save avg_df to CSV
-        avg_df.to_csv(comp_dir / f"AvgIntegralRatios_{anal_name}.csv")
+        avg_df.to_csv(comp_dir / f"Avg{ratio_name}_{anal_name}.csv")
 
         # Plotting if plot=True
         if plot:
@@ -335,10 +359,10 @@ class SimilarityAnalysisBase:
             if ylims:
                 ax.set_ylim(*ylims)
             ax.set_xlabel("Similarity Measure")
-            ax.set_ylabel("Average Top Area Ratio")
+            ax.set_ylabel(f"Average {ratio_name}")
             ax.set_title(anal_name.replace("_", " ").capitalize())
             plt.tight_layout()
-            plt.savefig(self.plot_dir / f"AvgIntegralRatios_{anal_name}_{num_trials:02d}trials.png", dpi=300)
+            plt.savefig(self.plot_dir / f"Avg{ratio_name}_{anal_name}_{num_trials:02d}trials.png", dpi=300)
             print("Done. Plots saved") if self.verbose else None
             if return_plot:
                 return ax
