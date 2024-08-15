@@ -1,5 +1,5 @@
 import os
-import random
+import swifter
 import pymongo
 import numpy as np
 import pandas as pd
@@ -196,7 +196,7 @@ class SimilarityAnalysisBase:
         sample_pairs_df.fillna(0, inplace=True)
         print("--> Starting KDE integral analysis.") if self.verbose > 0 else None
         for prop in self.prop_cols:
-            area_df[prop] = area_df.apply(
+            area_df[prop] = area_df.swifter.apply(
                 lambda x: self.kde_integrals(sample_pairs_df, kde_percent=self.kde_percent,
                                              top_percent=self.top_percent, verbose=self.verbose,
                                              x_name=x.sim, y_name=prop, plot_dir=self.plot_dir, **kwargs),
@@ -223,7 +223,7 @@ class SimilarityAnalysisBase:
         print("--> Starting NHR integral analysis.") if self.verbose > 0 else None
         from similarities.neighborhood_ratios import neighborhood_ratio
         for prop in self.prop_cols:
-            area_df[prop] = area_df.apply(lambda x: neighborhood_ratio(sample_pairs_df, x_name=x.sim, y_name=prop), axis=1)
+            area_df[prop] = area_df.swifter.apply(lambda x: neighborhood_ratio(sample_pairs_df, x_name=x.sim, y_name=prop), axis=1)
             print("--> Finished NHR integral analysis for {}.".format(prop)) if self.verbose > 1 else None
         area_df.set_index("sim", inplace=True)
         if "diff_hl" in area_df.columns:

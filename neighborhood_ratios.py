@@ -1,4 +1,5 @@
 import tqdm
+import swifter
 import numpy as np
 import scipy.optimize as opt
 import matplotlib.pyplot as plt
@@ -48,29 +49,6 @@ def lrt_density(t_x, data_df, x_name="x_norm", y_name="y_norm"):
     return lrt_points / lrt_area
 
 
-def find_diagonal_old(data_df, buffer=1000, x_name="x_norm", y_name="y_norm", return_dict=False):
-    """
-    Identifies the x-coordinate of the diagonal line that maximizes the density of points below it.
-
-    Parameters:
-    - data_df (DataFrame): The DataFrame containing the data points.
-    - buffer (int, optional): A threshold for determining when to stop searching for the maximum density. Default is 1000.
-    - x_name (str, optional): The name of the column representing the x-coordinates. Default is "x_norm".
-    - y_name (str, optional): The name of the column representing the y-coordinates. Default is "y_norm".
-    - return_dict (bool, optional): If True, returns the dictionary of densities for all x-values. Default is False.
-
-    Returns:
-    - float or dict: The x-coordinate that maximizes the density, or the dictionary of densities if return_dict is True.
-    """
-    dens_dict = {x: 0 for x in np.arange(0, 1, 0.001)}
-    for x in tqdm.tqdm(dens_dict.keys()):
-        dens = lrt_density(x, data_df, x_name=x_name, y_name=y_name)
-        dens_dict[x] = dens
-        max_dens_x = max(dens_dict, key=dens_dict.get)
-        if dens < (dens_dict[max_dens_x] - buffer):
-            return dens_dict if return_dict else max_dens_x
-
-
 def find_diagonal(data_df, x_name="x_norm", y_name="y_norm"):
     """
     Finds the x-coordinate of the diagonal line that maximizes the density of points below it
@@ -116,7 +94,7 @@ def neighborhood_ratio(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo", pl
 
     # Find diagonal line and compute point densities.
     t_x = find_diagonal(df_i, x_name="x_norm", y_name="y_norm")
-    neighborhood_points = df_i.apply(lambda r: diag_test(r.x_norm, r.y_norm, t_x, count_backside=True), axis=1).sum()
+    neighborhood_points = df_i.swifter.apply(lambda r: diag_test(r.x_norm, r.y_norm, t_x, count_backside=True), axis=1).sum()
     lrt_area = 0.5 * (1 - t_x)
     nbh_ratio = (neighborhood_points / lrt_area) / (df_i.shape[0] / 1)
 
