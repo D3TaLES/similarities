@@ -257,7 +257,7 @@ class SimilarityAnalysisBase:
         pd.options.mode.copy_on_write = True
         num_rows = base_df.shape[0]
         new_df = base_df.copy()
-        for prop in self.prop_cols:
+        for prop in self.sim_cols:
             new_df[prop] = MinMaxScaler().fit_transform(np.array(-new_df[sim].abs()).reshape(-1, 1))
             new_df[prop] = new_df[prop] + np.random.normal(0, 0.01, num_rows)
 
