@@ -9,6 +9,7 @@ from rdkit import Chem
 from scipy import stats
 from pymongo import MongoClient
 import matplotlib.pyplot as plt
+from scipy.stats import truncnorm
 from sklearn.preprocessing import MinMaxScaler
 from rdkit.DataStructs.cDataStructs import ExplicitBitVect
 
@@ -17,7 +18,7 @@ from similarities.settings import *
 
 class SimilarityAnalysisBase:
     def __init__(self, kde_percent: float, top_percent: float,
-                 verbose: int = 3, anal_name: str = "SimAnalysis",
+                 verbose: int = 3, anal_name: str = "SimAnalysis", replace_files=False,
                  elec_props: list = ELEC_PROPS, sim_metrics: dict = SIM_METRICS, fp_gens: dict = FP_GENS):
         """
 
@@ -36,6 +37,7 @@ class SimilarityAnalysisBase:
         """
         self.total_docs = self._get_total_docs()
         self.verbose = verbose
+        self.replace_files = replace_files
 
         self.kde_percent = kde_percent / 100 if kde_percent > 1 else kde_percent
         self.top_percent = top_percent / 100 if top_percent > 1 else top_percent
@@ -88,7 +90,7 @@ class SimilarityAnalysisBase:
         kde_data = data_df[:int(len(data_df.index) * kde_percent)]
         print(f"KDE percent {x_name} min: {kde_data[x_name].min()}") if verbose > 2 else None
         if prop_abs:
-            kde_data[y_name] = kde_data[y_name].apply(abs)
+            kde_data.loc[:, y_name] = kde_data[y_name].apply(abs)
         # Perform the kernel density estimate
         x = np.array(kde_data[x_name].values.tolist())
         y = np.array(kde_data[y_name].values.tolist())
@@ -231,7 +233,7 @@ class SimilarityAnalysisBase:
 
         return area_df
 
-    def _randomize_similarities(self, base_df):
+    def _uniform_similarities(self, base_df, corr_cutoff=False, prop="diff_homo"):
         """
         Parameters:
         base_df (pd.DataFrame): DataFrame containing the sample pairs data with similarity metrics and properties.
@@ -240,13 +242,27 @@ class SimilarityAnalysisBase:
         pd.DataFrame: DataFrame with similarity metrics as rows and properties as columns, containing the KDE integral values.
         """
         num_rows = base_df.shape[0]
-        for sim in self.sim_cols:
-            if sim in base_df.columns:
-                base_df[sim] = np.random.uniform(0, 1, num_rows)
+        new_df = base_df.copy()
+        
+        for p in self.prop_cols:
+            new_df[p] = new_df[p].abs()
+            
+        for s in self.sim_cols:
+            if s in new_df.columns:
+                new_df[s] = np.random.uniform(0, 1, num_rows)
+            
+            if corr_cutoff: 
+                # Replace similarity columns with new random data until all values are less than _temp
+                new_df["corr_line"] = MinMaxScaler().fit_transform(np.array(-new_df[prop]).reshape(-1, 1))
+                mask = new_df[s] >= new_df["corr_line"]
+                while mask.sum() >= 2:
+                    new_values = np.random.uniform(0, 1, mask.sum())
+                    new_df.loc[mask, s] = new_values
+                    mask = new_df[s] >= new_df["corr_line"]
 
-        return base_df
+        return new_df
 
-    def _correlated_similarities(self, base_df, sim="mfpReg_tanimoto"):
+    def _correlated_similarities(self, base_df, prop="diff_homo"):
         """
         Parameters:
         base_df (pd.DataFrame): DataFrame containing the sample pairs data with similarity metrics and properties.
@@ -257,13 +273,45 @@ class SimilarityAnalysisBase:
         pd.options.mode.copy_on_write = True
         num_rows = base_df.shape[0]
         new_df = base_df.copy()
-        for prop in self.prop_cols:
-            new_df[prop] = MinMaxScaler().fit_transform(np.array(-new_df[sim].abs()).reshape(-1, 1))
-            new_df[prop] = new_df[prop] + np.random.normal(0, 0.01, num_rows)
+        for sim in self.sim_cols:
+            new_df[sim] = MinMaxScaler().fit_transform(np.array(-new_df[prop].abs()).reshape(-1, 1))
+            new_df[sim] = new_df[sim] + np.random.normal(0, 0.01, num_rows)
 
         return new_df
 
-    def _get_sample_pairs_df(self, i, size, replace_sim=False, **kwargs):
+
+    def _normal_similarities(self, base_df, prop="diff_homo", std_dev=0.5, corr_cutoff=False):
+        """
+        Parameters:
+        base_df (pd.DataFrame): DataFrame containing the sample pairs data with similarity metrics and properties.
+
+        Returns:
+        pd.DataFrame: DataFrame with similarity metrics as rows and properties as columns, containing the KDE integral values.
+        """
+        
+        num_rows = base_df.shape[0]
+        new_df = base_df.copy()
+        for p in self.prop_cols:
+            new_df[p] = new_df[p].abs()
+        
+        for s in self.sim_cols:
+            # Generate truncated normally distributed numbers 
+            a_trunc, b_trunc, loc = 0, 1, 0
+            a, b = (a_trunc - loc) / std_dev, (b_trunc - loc) / std_dev
+            new_df[s] = truncnorm(a, b, loc=loc, scale=std_dev).rvs(size=num_rows)
+
+            if corr_cutoff: 
+                # Replace similarity columns with new random data until all values are less than _temp
+                new_df["corr_line"] = MinMaxScaler().fit_transform(np.array(-new_df[prop]).reshape(-1, 1))
+                mask = new_df[s] >= new_df["corr_line"]
+                while mask.sum() >= 2:
+                    new_values = truncnorm(a, b, loc=loc, scale=std_dev).rvs(size=mask.sum())
+                    new_df.loc[mask, s] = new_values
+                    mask = new_df[s] >= new_df["corr_line"]
+
+        return new_df
+
+    def _get_sample_pairs_df(self, i, size, kde_percent=1, replace_sim=False, **kwargs):
         """
         Parameters:
         size (int): Number of documents to sample for each trial.
@@ -276,31 +324,62 @@ class SimilarityAnalysisBase:
         sample_pairs_csv = comp_dir / f"Combo_{size}size_{i:02d}.csv"
         if not os.path.isfile(sample_pairs_csv):
             # Establish one variable, _working_df, so only one DataFrame is held in memory
-            _working_df = self._random_sample(size=size, kde_percent=self.kde_percent)
+            _working_df = self._random_sample(size=size, kde_percent=kde_percent)
             _working_df.to_csv(sample_pairs_csv)
         else:
             _working_df = pd.read_csv(sample_pairs_csv, index_col=0)
 
         # Generate KDE integrals DataFrame and save to CSV
-        if replace_sim == "random":
-            replace_csv = comp_dir / f"Combo_{size}size_{i:02d}_random.csv"
-            if not os.path.isfile(replace_csv):
-                _working_df = self._randomize_similarities(_working_df)
+        if replace_sim: 
+            replace_csv = comp_dir / f"Combo_{size}size_{i:02d}_{replace_sim}.csv"
+            if not os.path.isfile(replace_csv) or self.replace_files:
+
+                # Generate replacement data
+                if replace_sim == "uniform":
+                    _working_df = self._uniform_similarities(_working_df)
+                elif replace_sim == "uniformCorr":
+                    _working_df = self._uniform_similarities(_working_df, corr_cutoff=True)
+                elif replace_sim == "correlated":
+                    _working_df = self._correlated_similarities(_working_df, **kwargs)
+                elif replace_sim == "normal":
+                    _working_df = self._normal_similarities(_working_df, **kwargs)
+                elif replace_sim == "normalCorr":
+                    _working_df = self._normal_similarities(_working_df, corr_cutoff=True, **kwargs)
+                else: 
+                    raise Exception(f"No replacement method found for replace_sim {replace_sim}.")
+                
                 _working_df.to_csv(replace_csv)
             else:
                 _working_df = pd.read_csv(replace_csv, index_col=0)
 
-        elif replace_sim == "correlated":
-            replace_csv = comp_dir / f"Combo_{size}size_{i:02d}_correlated.csv"
-            if not os.path.isfile(replace_csv):
-                _working_df = self._correlated_similarities(_working_df, **kwargs)
-                _working_df.to_csv(replace_csv)
-            else:
-                _working_df = pd.read_csv(replace_csv, index_col=0)
         return _working_df[self.sim_cols + self.prop_cols]
 
+    @staticmethod
+    def get_similarity_measures_below_upper_bound(avg_df: pd.DataFrame) -> list:
+        """
+        Returns a list of similarity measure names where the standard deviation lower bound 
+        (mean - std) is less than the standard deviation upper bound (mean + std) of the first similarity measure.
+    
+        Parameters:
+        avg_df (pd.DataFrame): DataFrame containing the average values.
+    
+        Returns:
+        list: A list of similarity measure names that meet the condition.
+        """
+        # Calculate mean and standard deviation across rows
+        mean_row = avg_df.mean(axis=1)
+        std_row = avg_df.std(axis=1)
+        
+        # Get similarity measure names where the lower bound is less than the upper bound of the first similarity measure
+        std_upper_bound_first = mean_row.iloc[0] + std_row.iloc[0]
+        lower_bounds = mean_row - std_row
+        similarity_measures = lower_bounds[lower_bounds < std_upper_bound_first].index.tolist()
+        
+        return similarity_measures
+        
     def rand_composite(self, size, num_trials=30, plot=True, replace_sim=None, ylims=None, ax=None, std_values=None,
-                       return_plot=True, neighborhood=False):
+                       return_plot=True, neighborhood=False, upper_bound=None, lower_bound=None, soft_upper_bound=None, 
+                       soft_lower_bound=None, **get_sample_kwargs):
         """
         Performs a composite analysis by sampling multiple datasets, applying KDE analysis, and aggregating results.
 
@@ -321,8 +400,8 @@ class SimilarityAnalysisBase:
 
             # Check if the area_df_csv file exists
             area_df_csv = comp_dir / f"{ratio_name}_{anal_name}_Rand{i:02d}.csv"
-            if not os.path.isfile(area_df_csv):
-                _working_df = self._get_sample_pairs_df(i=i, size=size, replace_sim=replace_sim)
+            if not os.path.isfile(area_df_csv) or self.replace_files:
+                _working_df = self._get_sample_pairs_df(i=i, size=size, replace_sim=replace_sim, **get_sample_kwargs)
                 _working_df = self._generate_all_nhr_df(_working_df) if neighborhood else self._generate_all_kde_df(_working_df)
                 _working_df.to_csv(area_df_csv)
             else:
@@ -335,7 +414,7 @@ class SimilarityAnalysisBase:
         avg_df = pd.concat(avg_dfs, axis=1)
 
         # Sort avg_df by the maximum value in each row
-        sort_value = (avg_df.mean(axis=1) + avg_df.std(axis=1)).sort_values()
+        sort_value = (avg_df.mean(axis=1) + avg_df.std(axis=1)).sort_values(ascending=False if neighborhood else True)
         avg_df = avg_df.reindex(sort_value.index)
 
         # Save avg_df to CSV
@@ -355,9 +434,29 @@ class SimilarityAnalysisBase:
             ax.fill_between(mean_row.index, mean_row - std_row, mean_row + std_row, color='blue', alpha=0.2,
                             label='1 Std Dev')
             sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
+
+            # Set x lables
             ax.set_xticks(range(0, len(avg_df.index)), avg_df.index, rotation="vertical", fontsize=10)
+            equivilant_sims = self.get_similarity_measures_below_upper_bound(avg_df)
+            for label in ax.get_xticklabels():
+                if label.get_text() in equivilant_sims:
+                    label.set_color('red')
+            
             if ylims:
                 ax.set_ylim(*ylims)
+            if upper_bound is not None:
+                ax.axhline(y=upper_bound, color='black', linestyle='-', linewidth=2, label=f'Upper Bound ({upper_bound})')
+            
+            if lower_bound is not None:
+                ax.axhline(y=lower_bound, color='black', linestyle='-', linewidth=2, label=f'Lower Bound ({lower_bound})')
+                
+            if soft_upper_bound is not None:
+                ax.axhline(y=soft_upper_bound, color='black', linestyle='--', linewidth=2, label=f'Soft Upper Bound ({upper_bound})')
+            
+            if soft_lower_bound is not None:
+                ax.axhline(y=soft_lower_bound, color='black', linestyle='--', linewidth=2, label=f'Soft Lower Bound ({lower_bound})')
+
+                
             ax.set_xlabel("Similarity Measure")
             ax.set_ylabel(f"Average {ratio_name}")
             ax.set_title(anal_name.replace("_", " ").capitalize())
@@ -420,7 +519,7 @@ class SimilarityAnalysisBase:
 class SimilarityAnalysisRand(SimilarityAnalysisBase):
     def __init__(self, kde_percent: float, top_percent: float, orig_df: pd.DataFrame = None, smiles_pickle: str = None,
                  verbose: int = 3, anal_name: str = "SimAnalysis", elec_props: list = ELEC_PROPS,
-                 sim_metrics: dict = SIM_METRICS, fp_gens: dict = FP_GENS):
+                 sim_metrics: dict = SIM_METRICS, fp_gens: dict = FP_GENS, **kwargs):
         """
 
         Parameters:
@@ -437,7 +536,7 @@ class SimilarityAnalysisRand(SimilarityAnalysisBase):
 
         """
         super().__init__(kde_percent=kde_percent, top_percent=top_percent, verbose=verbose, anal_name=anal_name,
-                         elec_props=elec_props, sim_metrics=sim_metrics, fp_gens=fp_gens)
+                         elec_props=elec_props, sim_metrics=sim_metrics, fp_gens=fp_gens, **kwargs)
         self.molecules_df = self._generate_molecules_df(orig_df=orig_df, smiles_pickle=smiles_pickle)
         self.all_ids = self.molecules_df.index.tolist()
 
@@ -527,7 +626,7 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
     def __init__(self, kde_percent, top_percent,
                  total_docs=353314653, verbose=3,
                  elec_props=ELEC_PROPS, sim_metrics=SIM_METRICS, fp_gens=FP_GENS,
-                 mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll=MONGO_PAIRS_COLL):
+                 mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll=MONGO_PAIRS_COLL, **kwargs):
         """
 
         Parameters:
@@ -545,7 +644,7 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
         """
         self.total_docs = total_docs
         super().__init__(kde_percent=kde_percent, top_percent=top_percent, verbose=verbose, anal_name=mongo_coll,
-                         elec_props=elec_props, sim_metrics=sim_metrics, fp_gens=fp_gens)
+                         elec_props=elec_props, sim_metrics=sim_metrics, fp_gens=fp_gens, **kwargs)
         self.mongo_uri = mongo_uri
         self.mongo_db = mongo_db
         self.mongo_coll = mongo_coll
@@ -607,8 +706,7 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
                 x or y) else None  # Include only the fields 'x' and 'y'
 
         with MongoClient(self.mongo_uri) as client:
-            print(f"Starting query to select top {size * self.kde_percent} of {size} "
-                  f"random docs...") if self.verbose else None
+            print(f"Starting query to select top {size * kde_percent} of {size} random docs...") if self.verbose else None
             results = list(client[self.mongo_db][self.mongo_coll].aggregate(pipeline, allowDiskUse=True))
             df = pd.DataFrame(results).set_index("_id")
         return df
