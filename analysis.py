@@ -226,7 +226,8 @@ class SimilarityAnalysisBase:
         print("--> Starting NHR integral analysis.") if self.verbose > 0 else None
         from similarities.neighborhood_ratios import neighborhood_ratio
         for prop in self.prop_cols:
-            area_df[prop] = area_df.swifter.apply(lambda x: neighborhood_ratio(sample_pairs_df, x_name=x.sim, y_name=prop), axis=1)
+            area_df[prop] = area_df.swifter.apply(
+                lambda x: neighborhood_ratio(sample_pairs_df, x_name=x.sim, y_name=prop), axis=1)
             print("--> Finished NHR integral analysis for {}.".format(prop)) if self.verbose > 1 else None
         area_df.set_index("sim", inplace=True)
         if "diff_hl" in area_df.columns:
@@ -244,15 +245,15 @@ class SimilarityAnalysisBase:
         """
         num_rows = base_df.shape[0]
         new_df = base_df.copy()
-        
+
         for p in self.prop_cols:
             new_df[p] = new_df[p].abs()
-            
+
         for s in self.sim_cols:
             if s in new_df.columns:
                 new_df[s] = np.random.uniform(0, 1, num_rows)
-            
-            if corr_cutoff: 
+
+            if corr_cutoff:
                 # Replace similarity columns with new random data until all values are less than _temp
                 new_df["corr_line"] = MinMaxScaler().fit_transform(np.array(-new_df[prop]).reshape(-1, 1))
                 mask = new_df[s] >= new_df["corr_line"]
@@ -280,7 +281,6 @@ class SimilarityAnalysisBase:
 
         return new_df
 
-
     def _normal_similarities(self, base_df, prop="diff_homo", std_dev=0.5, corr_cutoff=False):
         """
         Parameters:
@@ -289,19 +289,19 @@ class SimilarityAnalysisBase:
         Returns:
         pd.DataFrame: DataFrame with similarity metrics as rows and properties as columns, containing the KDE integral values.
         """
-        
+
         num_rows = base_df.shape[0]
         new_df = base_df.copy()
         for p in self.prop_cols:
             new_df[p] = new_df[p].abs()
-        
+
         for s in self.sim_cols:
-            # Generate truncated normally distributed numbers 
+            # Generate truncated normally distributed numbers
             a_trunc, b_trunc, loc = 0, 1, 0
             a, b = (a_trunc - loc) / std_dev, (b_trunc - loc) / std_dev
             new_df[s] = truncnorm(a, b, loc=loc, scale=std_dev).rvs(size=num_rows)
 
-            if corr_cutoff: 
+            if corr_cutoff:
                 # Replace similarity columns with new random data until all values are less than _temp
                 new_df["corr_line"] = MinMaxScaler().fit_transform(np.array(-new_df[prop]).reshape(-1, 1))
                 mask = new_df[s] >= new_df["corr_line"]
@@ -312,11 +312,11 @@ class SimilarityAnalysisBase:
 
         return new_df
 
-    def _get_sample_pairs_df(self, i, size, kde_percent=1, replace_sim=False, **kwargs):
+    def _get_sample_pairs_df(self, i, size, kde_percent=1, replace_sim=False, norm_std_dev=None):
         """
         Parameters:
         size (int): Number of documents to sample for each trial.
-        replace_sim (bool, optional): 
+        replace_sim (bool, optional):
 
         """
         comp_dir = self.data_dir / "composite_data"
@@ -331,7 +331,7 @@ class SimilarityAnalysisBase:
             _working_df = pd.read_csv(sample_pairs_csv, index_col=0)
 
         # Generate KDE integrals DataFrame and save to CSV
-        if replace_sim: 
+        if replace_sim:
             replace_csv = comp_dir / f"Combo_{size}size_{i:02d}_{replace_sim}.csv"
             if not os.path.isfile(replace_csv) or self.replace_files:
 
@@ -341,14 +341,14 @@ class SimilarityAnalysisBase:
                 elif replace_sim == "uniformCorr":
                     _working_df = self._uniform_similarities(_working_df, corr_cutoff=True)
                 elif replace_sim == "correlated":
-                    _working_df = self._correlated_similarities(_working_df, **kwargs)
+                    _working_df = self._correlated_similarities(_working_df)
                 elif replace_sim == "normal":
-                    _working_df = self._normal_similarities(_working_df, **kwargs)
+                    _working_df = self._normal_similarities(_working_df, std_dev=norm_std_dev)
                 elif replace_sim == "normalCorr":
-                    _working_df = self._normal_similarities(_working_df, corr_cutoff=True, **kwargs)
-                else: 
+                    _working_df = self._normal_similarities(_working_df, corr_cutoff=True, std_dev=norm_std_dev)
+                else:
                     raise Exception(f"No replacement method found for replace_sim {replace_sim}.")
-                
+
                 _working_df.to_csv(replace_csv)
             else:
                 _working_df = pd.read_csv(replace_csv, index_col=0)
@@ -358,29 +358,77 @@ class SimilarityAnalysisBase:
     @staticmethod
     def get_similarity_measures_below_upper_bound(avg_df: pd.DataFrame) -> list:
         """
-        Returns a list of similarity measure names where the standard deviation lower bound 
+        Returns a list of similarity measure names where the standard deviation lower bound
         (mean - std) is less than the standard deviation upper bound (mean + std) of the first similarity measure.
-    
+
         Parameters:
         avg_df (pd.DataFrame): DataFrame containing the average values.
-    
+
         Returns:
         list: A list of similarity measure names that meet the condition.
         """
         # Calculate mean and standard deviation across rows
         mean_row = avg_df.mean(axis=1)
         std_row = avg_df.std(axis=1)
-        
-        # Get similarity measure names where the lower bound is less than the upper bound of the first similarity measure
+
+        # Similarity measure names where the lower bound is less than the upper bound of the first similarity measure
         std_upper_bound_first = mean_row.iloc[0] + std_row.iloc[0]
         lower_bounds = mean_row - std_row
         similarity_measures = lower_bounds[lower_bounds < std_upper_bound_first].index.tolist()
-        
+
         return similarity_measures
-        
-    def rand_composite(self, size, num_trials=30, plot=True, replace_sim=None, ylims=None, ax=None, std_values=None,
-                       return_plot=True, neighborhood=False, upper_bound=None, lower_bound=None, soft_upper_bound=None, 
-                       soft_lower_bound=None, **get_sample_kwargs):
+
+    def plot_avg_df(self, avg_df, ylims=None, ax=None, std_values=None, return_plot=True,
+                    upper_bound=None, lower_bound=None, soft_upper_bound=None, soft_lower_bound=None,
+                    ratio_name=None, anal_name=None, num_trials=None):
+        ax = sns.scatterplot(avg_df, s=10, ax=ax)
+        if std_values is not None:
+            sorted_values = std_values.reindex(list(avg_df.index))
+            std_mean, std_stdev = sorted_values.mean(axis=1), sorted_values.std(axis=1)
+            ax.plot(std_mean, label='Mean', color='red')
+            ax.fill_between(std_mean.index, std_mean - std_stdev, std_mean + std_stdev, color='red', alpha=0.2,
+                            label='Full Dataset Values')
+        mean_row, std_row = avg_df.mean(axis=1), avg_df.std(axis=1)
+        ax.plot(mean_row, label='Mean', color='blue')
+        ax.fill_between(mean_row.index, mean_row - std_row, mean_row + std_row, color='blue', alpha=0.2,
+                        label='1 Std Dev')
+        sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
+
+        # Set x lables
+        ax.set_xticks(range(0, len(avg_df.index)), avg_df.index, rotation="vertical", fontsize=10)
+        equivilant_sims = self.get_similarity_measures_below_upper_bound(avg_df)
+        for label in ax.get_xticklabels():
+            if label.get_text() in equivilant_sims:
+                label.set_color('red')
+
+        if ylims:
+            ax.set_ylim(*ylims)
+        if upper_bound is not None:
+            ax.axhline(y=upper_bound, color='black', linestyle='-', linewidth=2, label=f'Upper Bound ({upper_bound})')
+
+        if lower_bound is not None:
+            ax.axhline(y=lower_bound, color='black', linestyle='-', linewidth=2, label=f'Lower Bound ({lower_bound})')
+
+        if soft_upper_bound is not None:
+            ax.axhline(y=soft_upper_bound, color='black', linestyle='--', linewidth=2,
+                       label=f'Soft Upper Bound ({upper_bound})')
+
+        if soft_lower_bound is not None:
+            ax.axhline(y=soft_lower_bound, color='black', linestyle='--', linewidth=2,
+                       label=f'Soft Lower Bound ({lower_bound})')
+
+        ax.set_xlabel("Similarity Measure")
+        ax.set_ylabel(f"Average {ratio_name}")
+        ax.set_title(anal_name.replace("_", " ").capitalize())
+        plt.tight_layout()
+        plt.savefig(self.plot_dir / f"Avg{ratio_name}_{anal_name}_{num_trials:02d}trials.png", dpi=300)
+        print("Done. Plots saved") if self.verbose else None
+        if return_plot:
+            return ax
+        return avg_df
+
+    def rand_composite(self, size, num_trials=30, plot=True, replace_sim=None, neighborhood=False, norm_std_dev=None,
+                       **plotting_kwargs):
         """
         Performs a composite analysis by sampling multiple datasets, applying KDE analysis, and aggregating results.
 
@@ -402,8 +450,9 @@ class SimilarityAnalysisBase:
             # Check if the area_df_csv file exists
             area_df_csv = comp_dir / f"{ratio_name}_{anal_name}_Rand{i:02d}.csv"
             if not os.path.isfile(area_df_csv) or self.replace_files:
-                _working_df = self._get_sample_pairs_df(i=i, size=size, replace_sim=replace_sim, **get_sample_kwargs)
-                _working_df = self._generate_all_nhr_df(_working_df) if neighborhood else self._generate_all_kde_df(_working_df)
+                _working_df = self._get_sample_pairs_df(i=i, size=size, replace_sim=replace_sim, norm_std_dev=norm_std_dev)
+                _working_df = self._generate_all_nhr_df(_working_df) if neighborhood else self._generate_all_kde_df(
+                    _working_df)
                 _working_df.to_csv(area_df_csv)
             else:
                 _working_df = pd.read_csv(area_df_csv, index_col=0)
@@ -423,49 +472,7 @@ class SimilarityAnalysisBase:
 
         # Plotting if plot=True
         if plot:
-            ax = sns.scatterplot(avg_df, s=10, ax=ax)
-            if std_values is not None:
-                sorted_values = std_values.reindex(list(avg_df.index))
-                std_mean, std_stdev = sorted_values.mean(axis=1), sorted_values.std(axis=1)
-                ax.plot(std_mean, label='Mean', color='red')
-                ax.fill_between(std_mean.index, std_mean - std_stdev, std_mean + std_stdev, color='red', alpha=0.2,
-                                label='Full Dataset Values')
-            mean_row, std_row = avg_df.mean(axis=1), avg_df.std(axis=1)
-            ax.plot(mean_row, label='Mean', color='blue')
-            ax.fill_between(mean_row.index, mean_row - std_row, mean_row + std_row, color='blue', alpha=0.2,
-                            label='1 Std Dev')
-            sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
-
-            # Set x lables
-            ax.set_xticks(range(0, len(avg_df.index)), avg_df.index, rotation="vertical", fontsize=10)
-            equivilant_sims = self.get_similarity_measures_below_upper_bound(avg_df)
-            for label in ax.get_xticklabels():
-                if label.get_text() in equivilant_sims:
-                    label.set_color('red')
-            
-            if ylims:
-                ax.set_ylim(*ylims)
-            if upper_bound is not None:
-                ax.axhline(y=upper_bound, color='black', linestyle='-', linewidth=2, label=f'Upper Bound ({upper_bound})')
-            
-            if lower_bound is not None:
-                ax.axhline(y=lower_bound, color='black', linestyle='-', linewidth=2, label=f'Lower Bound ({lower_bound})')
-                
-            if soft_upper_bound is not None:
-                ax.axhline(y=soft_upper_bound, color='black', linestyle='--', linewidth=2, label=f'Soft Upper Bound ({upper_bound})')
-            
-            if soft_lower_bound is not None:
-                ax.axhline(y=soft_lower_bound, color='black', linestyle='--', linewidth=2, label=f'Soft Lower Bound ({lower_bound})')
-
-                
-            ax.set_xlabel("Similarity Measure")
-            ax.set_ylabel(f"Average {ratio_name}")
-            ax.set_title(anal_name.replace("_", " ").capitalize())
-            plt.tight_layout()
-            plt.savefig(self.plot_dir / f"Avg{ratio_name}_{anal_name}_{num_trials:02d}trials.png", dpi=300)
-            print("Done. Plots saved") if self.verbose else None
-            if return_plot:
-                return ax
+            return self.plot_avg_df(avg_df, ratio_name=ratio_name, anal_name=anal_name, num_trials=num_trials, **plotting_kwargs)
         return avg_df
 
     def rand_composite_percentiles(self, size, num_trials=30, plot=True, replace_sim=None, ylims=None, ax=None,
@@ -707,7 +714,8 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
                 x or y) else None  # Include only the fields 'x' and 'y'
 
         with MongoClient(self.mongo_uri) as client:
-            print(f"Starting query to select top {size * kde_percent} of {size} random docs...") if self.verbose else None
+            print(
+                f"Starting query to select top {size * kde_percent} of {size} random docs...") if self.verbose else None
             results = list(client[self.mongo_db][self.mongo_coll].aggregate(pipeline, allowDiskUse=True))
             df = pd.DataFrame(results).set_index("_id")
         return df
