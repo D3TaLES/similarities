@@ -1,4 +1,5 @@
 import os
+import time
 import pymongo
 import numpy as np
 import pandas as pd
@@ -577,10 +578,15 @@ class SimilarityPairsDBAnalysis:
             perc, kernel_results = self._batch_kde(sim=sim, prop=prop, batch_size=batch_size, divide=divide, **kwargs)
         else:
             with MongoClient(self.mongo_uri) as client:
+                start_time = time.time()
                 cursor = client[self.mongo_db][self.mongo_coll].find({}, {sim: 1, prop: 1},
                                                                      allow_disk_use=True).sort(
                     {sim: -1, prop: 1, "_id": 1}).limit(anal_num)
                 b_df = pd.DataFrame(list(cursor))
+                elapsed_time = time.time() - start_time
+
+                with open(self.data_dir / 'query_time_log.txt', 'a') as log_file:
+                    log_file.write(f'Query Time for {sim} {prop}: {elapsed_time:.4f} seconds\n')
 
             perc, kernel_results = self.kde_integrals(b_df, x_name=sim, y_name=prop, kde_percent=1, top_min=divide,
                                               top_percent=self.top_percent, verbose=self.verbose,

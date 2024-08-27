@@ -13,7 +13,7 @@ DB_FILE = DATA_DIR / "similarities.db"
 MONGO_CONNECT = "mongodb://10.33.30.17:23771/"
 MONGO_DB = "random"
 MONGO_MOL_COLL = "molecules"
-MONGO_PAIRS_COLL = "random_draw"
+MONGO_PAIRS_COLL = "mol_pairs"
 
 
 # Electronic Props to compare
