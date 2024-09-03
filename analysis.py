@@ -378,7 +378,7 @@ class SimilarityAnalysisBase:
 
         return similarity_measures
 
-    def plot_avg_df(self, avg_df, ylims=None, ax=None, std_values=None, return_plot=True, 
+    def plot_avg_df(self, avg_df, ylims=None, ax=None, std_values=None, return_plot=True, red_labels=True, 
                     upper_bound=None, lower_bound=None, soft_upper_bound=None, soft_lower_bound=None,
                     ratio_name=None, anal_name=None, num_trials=None):
         ax = sns.scatterplot(avg_df, s=10, ax=ax)
@@ -397,9 +397,10 @@ class SimilarityAnalysisBase:
         # Set x lables
         ax.set_xticks(range(0, len(avg_df.index)), avg_df.index, rotation="vertical", fontsize=10)
         equivilant_sims = self.get_similarity_measures_below_upper_bound(avg_df)
-        for label in ax.get_xticklabels():
-            if label.get_text() in equivilant_sims:
-                label.set_color('red')
+        if red_labels: 
+            for label in ax.get_xticklabels():
+                if label.get_text() in equivilant_sims:
+                    label.set_color('red')
 
         if ylims:
             ax.set_ylim(*ylims)
