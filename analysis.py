@@ -296,7 +296,7 @@ class SimilarityAnalysisBase:
             new_df[p] = new_df[p].abs()
 
         for s in self.sim_cols:
-            # Generate truncated normally distributed numbers 
+            # Generate truncated normally distributed numbers
             a_trunc, b_trunc, loc = 0, 1, 0
             a, b = (a_trunc - loc) / std_dev, (b_trunc - loc) / std_dev
             new_df[s] = truncnorm(a, b, loc=loc, scale=std_dev).rvs(size=num_rows)
@@ -316,7 +316,7 @@ class SimilarityAnalysisBase:
         """
         Parameters:
         size (int): Number of documents to sample for each trial.
-        replace_sim (bool, optional): 
+        replace_sim (bool, optional):
 
         """
         comp_dir = self.data_dir / "composite_data"
@@ -358,7 +358,7 @@ class SimilarityAnalysisBase:
     @staticmethod
     def get_similarity_measures_below_upper_bound(avg_df: pd.DataFrame) -> list:
         """
-        Returns a list of similarity measure names where the standard deviation lower bound 
+        Returns a list of similarity measure names where the standard deviation lower bound
         (mean - std) is less than the standard deviation upper bound (mean + std) of the first similarity measure.
 
         Parameters:
