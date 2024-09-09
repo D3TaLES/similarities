@@ -2,7 +2,6 @@ import tqdm
 import numpy as np
 import scipy.optimize as opt
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import MinMaxScaler
 
 
 def diagonal_line(x, test_x, y_max, x2=1, y2=0):
@@ -75,7 +74,7 @@ def find_diagonal_old(data_df, buffer=1000, x_name="mfpReg_tanimoto", y_name="di
 
     Parameters:
     - data_df (DataFrame): The DataFrame containing the data points.
-    - buffer (int, optional): A threshold for determining when to stop searching for the maximum density. Default is 1000.
+    - buffer (int, optional): A threshold for determining when to stop searching for the maximum density. Default = 1000
     - x_name (str, optional): The name of the column representing the x-coordinates.
     - y_name (str, optional): The name of the column representing the y-coordinates.
     - return_dict (bool, optional): If True, returns the dictionary of densities for all x-values. Default is False.

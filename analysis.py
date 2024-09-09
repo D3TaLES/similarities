@@ -18,9 +18,10 @@ from similarities.settings import *
 
 
 class SimilarityAnalysisBase:
-    def __init__(self, kde_percent: float, top_percent: float,
+    def __init__(self, kde_percent: float = 1, top_percent: float = 1,
                  verbose: int = 3, anal_name: str = "SimAnalysis", replace_files=False,
-                 elec_props: list = ELEC_PROPS, sim_metrics: dict = SIM_METRICS, fp_gens: dict = FP_GENS):
+                 elec_props: list = ELEC_PROPS, sim_metrics: dict = SIM_METRICS, fp_gens: dict = FP_GENS,
+                 default_sim="mfpReg_tanimoto", default_prop="diff_homo"):
         """
 
         Parameters:
@@ -56,6 +57,9 @@ class SimilarityAnalysisBase:
         os.makedirs(self.plot_dir, exist_ok=True)
         self.batch_kde_file = self.data_dir / f"IntegralRatios_allDB_{self.perc_name}.csv"
         self.divides_file = self.data_dir / f"TopDivides_DB_percentile{int(self.percentile):02d}.csv"
+
+        self.default_sim = default_sim
+        self.default_prop = default_prop
 
     @staticmethod
     def kde_integrals(data_df, kde_percent=1, top_percent=0.10, x_name="mfpReg_tanimoto", y_name="diff_homo",
@@ -158,20 +162,22 @@ class SimilarityAnalysisBase:
     def _random_sample(self, size=1000, **kwargs):
         raise NotImplementedError
 
-    def random_kde(self, x="mfpReg_tanimoto", y="diff_homo", size=1000, rand_seed=1, return_df=False, **kwargs):
+    def random_kde(self, x=None, y=None, size=1000, rand_seed=1, return_df=False, **kwargs):
         """
         Samples a random subset of documents from a MongoDB collection, performs KDE analysis, and returns
         the top percentile area.
 
         Parameters:
-        x (str, optional): The field to be used as the x-axis for KDE analysis. Default is "mfpReg_tanimoto".
-        y (str, optional): The field to be used as the y-axis for KDE analysis. Default is "diff_homo".
+        x (str, optional): The field to be used as the x-axis for KDE analysis. Default is self.default_sim.
+        y (str, optional): The field to be used as the y-axis for KDE analysis. Default is self.default_prop.
         size (int, optional): Number of documents to sample. Default is 1000.
         return_df (bool, optional): If True, returns both the KDE top percentile area and the sampled DataFrame.
 
         Returns:
         float or tuple: The KDE top percentile area. If `return_df` is True, returns a tuple (KDE top percentile area).
         """
+        x = x or self.default_sim
+        y = y or self.default_sim
         sample_pairs_csv = self.data_dir / "composite_data" / f"Combo_{size}size_{rand_seed:02d}.csv"
         if not os.path.isfile(sample_pairs_csv):
             df = self._random_sample(size=size)
@@ -225,7 +231,7 @@ class SimilarityAnalysisBase:
         sample_pairs_df.fillna(0, inplace=True)
         print("--> Starting NHR integral analysis.") if self.verbose > 0 else None
         from similarities.neighborhood_ratios import enhancement_ratio
-        for prop in self.prop_cols:
+        for prop in [self.default_prop]:
             area_df[prop] = area_df.swifter.apply(
                 lambda x: enhancement_ratio(sample_pairs_df, x_name=x.sim, y_name=prop), axis=1)
             print("--> Finished NHR integral analysis for {}.".format(prop)) if self.verbose > 1 else None
@@ -352,6 +358,7 @@ class SimilarityAnalysisBase:
                 _working_df.to_csv(replace_csv)
             else:
                 _working_df = pd.read_csv(replace_csv, index_col=0)
+            print(replace_csv)
 
         return _working_df[self.sim_cols + self.prop_cols]
 
@@ -530,7 +537,7 @@ class SimilarityAnalysisBase:
 
 
 class SimilarityAnalysisRand(SimilarityAnalysisBase):
-    def __init__(self, kde_percent: float, top_percent: float, orig_df: pd.DataFrame = None, smiles_pickle: str = None,
+    def __init__(self, kde_percent: float = 1, top_percent: float = 1, orig_df: pd.DataFrame = None, smiles_pickle: str = None,
                  verbose: int = 3, anal_name: str = "SimAnalysis", elec_props: list = ELEC_PROPS,
                  sim_metrics: dict = SIM_METRICS, fp_gens: dict = FP_GENS, **kwargs):
         """
@@ -636,7 +643,7 @@ class SimilarityAnalysisRand(SimilarityAnalysisBase):
 
 
 class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
-    def __init__(self, kde_percent, top_percent,
+    def __init__(self, kde_percent = 1, top_percent = 1,
                  total_docs=353314653, verbose=3,
                  elec_props=ELEC_PROPS, sim_metrics=SIM_METRICS, fp_gens=FP_GENS,
                  mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll=MONGO_PAIRS_COLL, **kwargs):
@@ -725,15 +732,15 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
             df = pd.DataFrame(results).set_index("_id")
         return df
 
-    def _batch_kde(self, sim="mfpReg_tanimoto", prop="diff_homo", batch_size=10000, zeros_cutoff=1e-10, divide=None,
+    def _batch_kde(self, sim=None, prop=None, batch_size=10000, zeros_cutoff=1e-10, divide=None,
                    **kwargs):
         """
         Perform batch Kernel Density Estimation (KDE) analysis on a dataset stored in a
         MongoDB collection and return percent of the top integrated KDE area.
 
         Parameters:
-        sim (str): Similarity metric to use for KDE analysis. Default is "mfpReg_tanimoto".
-        prop (str): Property to analyze alongside the similarity metric. Default is "diff_homo".
+        sim (str): Similarity metric to use for KDE analysis. Default is self.default_sim.
+        prop (str): Property to analyze alongside the similarity metric. Default is self.default_prop.
         batch_size (int): Number of documents to process in each batch. Default is 10,000.
         zeros_cutoff (float): Threshold below which the KDE percent is considered zero. Default is 1e-10.
 
@@ -743,6 +750,8 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
         """
 
         # Set up batch analysis
+        sim = sim or self.default_sim
+        prop = prop or self.default_prop
         anal_num = round(self.total_docs * self.kde_percent)
         total_processed = 0
         result_list = []
@@ -794,10 +803,12 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
 
         return avg_perc, results
 
-    def db_kde(self, sim="mfpReg_tanimoto", prop="diff_homo", divide=None, batch_size=None,
+    def db_kde(self, sim=None, prop=None, divide=None, batch_size=None,
                return_kernel=False, replace=False, set_in_progress=False, **kwargs):
         """
         """
+        sim = sim or self.default_sim
+        prop = prop or self.default_prop
 
         # Check of already exists
         batch_df = pd.read_csv(self.batch_kde_file, index_col=0) if os.path.isfile(
