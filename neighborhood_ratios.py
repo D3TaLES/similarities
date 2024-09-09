@@ -7,7 +7,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 def diagonal_line(x, test_x, y_max, x2=1, y2=0):
     x1, y1 = test_x, y_max
-    return ((y2 - y1) / (x2 - x1)) * (x - x1) + y1
+    return ((y1 - y2) / (x1 - x2)) * (x - x1) + y1
 
 
 def diag_test(x, y, test_x, y_max, count_backside=False, **line_kwargs):
@@ -116,7 +116,7 @@ def find_diagonal(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo"):
     return result.x
 
 
-def neighborhood_ratio(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo", plot=False):
+def enhancement_ratio(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo", plot=False):
     """
     Calculates the neighborhood ratio, a metric that compares the density of points in a specified region of a 2D plot
     to the overall density of points. From Journal of Medicinal Chemistry, 1996, Vol. 39, No. 16
@@ -133,10 +133,13 @@ def neighborhood_ratio(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo", pl
     # Normalize x and y data
     df_i = data_df[[x_name, y_name]].copy()
     df_i.loc[:, y_name] = data_df[y_name].abs()
+    y_max = df_i[y_name].max()
 
     # Find diagonal line and compute point densities.
     t_x = find_diagonal(df_i, x_name=x_name, y_name=y_name)
-    nbh_ratio = lr_triangle_density(t_x, df_i, x_name=x_name, y_name=y_name) / (df_i.shape[0] / 1)
+    triangle_density = lr_triangle_density(t_x, df_i, x_name=x_name, y_name=y_name)
+    total_density = df_i.shape[0] / (1 * y_max)
+    enhance_ratio = triangle_density / total_density
 
     # Plot data and line
     if plot:
@@ -144,6 +147,6 @@ def neighborhood_ratio(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo", pl
         plt.plot([t_x, 1], [df_i[y_name].max(), 0], color="r")
         plt.xlabel(x_name)
         plt.ylabel(y_name)
-        plt.text(x=1, y=1, s="Neighborhood Ratio: {:.2f}".format(nbh_ratio), color="k", fontsize=12,
+        plt.text(x=1, y=1, s="Enhancement Ratio: {:.2f}".format(enhance_ratio), color="k", fontsize=12,
                  verticalalignment='top', horizontalalignment='right')
-    return nbh_ratio
+    return enhance_ratio
