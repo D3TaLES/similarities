@@ -380,14 +380,20 @@ class SimilarityAnalysisBase:
 
     def plot_avg_df(self, avg_df, ylims=None, ax=None, std_values=None, return_plot=True, red_labels=True, 
                     upper_bound=None, lower_bound=None, soft_upper_bound=None, soft_lower_bound=None,
-                    ratio_name=None, anal_name=None, num_trials=None):
-        ax = sns.scatterplot(avg_df, s=10, ax=ax)
+                    ratio_name=None, anal_name=None):
         if std_values is not None:
-            sorted_values = std_values.reindex(list(avg_df.index))
-            std_mean, std_stdev = sorted_values.mean(axis=1), sorted_values.std(axis=1)
+            
+            sort_value = (std_values.mean(axis=1) + std_values.std(axis=1)).sort_values()
+            avg_df = avg_df.reindex(sort_value.index)
+            std_values = std_values.reindex(list(sort_value.index))
+        
+            ax = sns.scatterplot(avg_df, s=10)
+            std_mean, std_stdev = std_values.mean(axis=1), std_values.std(axis=1)
             ax.plot(std_mean, label='Mean', color='red')
             ax.fill_between(std_mean.index, std_mean - std_stdev, std_mean + std_stdev, color='red', alpha=0.2,
                             label='Full Dataset Values')
+        else:
+            ax = sns.scatterplot(avg_df, s=10, ax=ax)
         mean_row, std_row = avg_df.mean(axis=1), avg_df.std(axis=1)
         ax.plot(mean_row, label='Mean', color='blue')
         ax.fill_between(mean_row.index, mean_row - std_row, mean_row + std_row, color='blue', alpha=0.2,
@@ -406,10 +412,6 @@ class SimilarityAnalysisBase:
             ax.set_ylim(*ylims)
         if upper_bound is not None:
             ax.axhline(y=upper_bound, color='black', linestyle='-', linewidth=2, label=f'Upper Bound ({upper_bound})')
-
-        if lower_bound is not None:
-            ax.axhline(y=lower_bound, color='black', linestyle='-', linewidth=2, label=f'Lower Bound ({lower_bound})')
-
         if soft_upper_bound is not None:
             ax.axhline(y=soft_upper_bound, color='black', linestyle='--', linewidth=2,
                        label=f'Soft Upper Bound ({upper_bound})')
@@ -417,12 +419,14 @@ class SimilarityAnalysisBase:
         if soft_lower_bound is not None:
             ax.axhline(y=soft_lower_bound, color='black', linestyle='--', linewidth=2,
                        label=f'Soft Lower Bound ({lower_bound})')
+        if lower_bound is not None:
+            ax.axhline(y=lower_bound, color='black', linestyle='-', linewidth=2, label=f'Lower Bound ({lower_bound})')
 
         ax.set_xlabel("Similarity Measure")
         ax.set_ylabel(f"Average {ratio_name}")
         ax.set_title(anal_name.replace("_", " ").capitalize())
         plt.tight_layout()
-        plt.savefig(self.plot_dir / f"Avg{ratio_name}_{anal_name}_{num_trials:02d}trials.png", dpi=300)
+        plt.savefig(self.plot_dir / f"Avg{ratio_name}_{anal_name}.png", dpi=300)
         print("Done. Plots saved") if self.verbose else None
         if return_plot:
             return ax
@@ -473,7 +477,7 @@ class SimilarityAnalysisBase:
 
         # Plotting if plot=True
         if plot:
-            return self.plot_avg_df(avg_df, ratio_name=ratio_name, anal_name=anal_name, num_trials=num_trials, **plotting_kwargs)
+            return self.plot_avg_df(avg_df, ratio_name=ratio_name, anal_name=anal_name+f"{num_trials:02d}trials", **plotting_kwargs)
         return avg_df
 
     def rand_composite_percentiles(self, size, num_trials=30, plot=True, replace_sim=None, ylims=None, ax=None,
