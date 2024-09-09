@@ -224,10 +224,10 @@ class SimilarityAnalysisBase:
         area_df["sim"] = self.sim_cols
         sample_pairs_df.fillna(0, inplace=True)
         print("--> Starting NHR integral analysis.") if self.verbose > 0 else None
-        from similarities.neighborhood_ratios import neighborhood_ratio
+        from similarities.neighborhood_ratios import enhancement_ratio
         for prop in self.prop_cols:
             area_df[prop] = area_df.swifter.apply(
-                lambda x: neighborhood_ratio(sample_pairs_df, x_name=x.sim, y_name=prop), axis=1)
+                lambda x: enhancement_ratio(sample_pairs_df, x_name=x.sim, y_name=prop), axis=1)
             print("--> Finished NHR integral analysis for {}.".format(prop)) if self.verbose > 1 else None
         area_df.set_index("sim", inplace=True)
         if "diff_hl" in area_df.columns:
