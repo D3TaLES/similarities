@@ -524,7 +524,7 @@ class SimilarityAnalysisBase:
         avg_df = pd.concat(avg_dfs, axis=1)
 
         # Sort avg_df by the maximum value in each row
-        sort_value = (avg_df.mean(axis=1) + avg_df.std(axis=1)).sort_values(ascending=False if neighborhood else True)
+        sort_value = (avg_df.mean(axis=1) + avg_df.std(axis=1)).sort_values(ascending=True if method=="kde" else False)
         avg_df = avg_df.reindex(sort_value.index)
 
         # Save avg_df to CSV
