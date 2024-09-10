@@ -505,8 +505,14 @@ class SimilarityAnalysisBase:
             area_df_csv = comp_dir / f"{ratio_name}_{anal_name}_Rand{i:02d}.csv"
             if not os.path.isfile(area_df_csv) or self.replace_files:
                 _working_df = self._get_sample_pairs_df(i=i, size=size, replace_sim=replace_sim, norm_std_dev=norm_std_dev)
-                _working_df = self._generate_all_nhr_df(_working_df) if neighborhood else self._generate_all_kde_df(
-                    _working_df)
+                if method == "kde":
+                    self._generate_all_kde_df(_working_df)
+                elif method == "nhr":
+                    _working_df = self._generate_all_nhr_df(_working_df)
+                elif method == "ranking":
+                    _working_df = self._generate_all_ranking_df(_working_df)
+                else:
+                    raise KeyError(f"Method {method} is not an available method." )
                 _working_df.to_csv(area_df_csv)
             else:
                 _working_df = pd.read_csv(area_df_csv, index_col=0)
