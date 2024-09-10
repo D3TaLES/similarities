@@ -156,6 +156,25 @@ class SimilarityAnalysisBase:
                             dpi=300)
         return (percent_top_area, kernel) if return_kernel else percent_top_area
 
+    @staticmethod
+    def ranking_ratio(data_df, top_percent=0.10, x_name="mfpReg_tanimoto", y_name="diff_homo"):
+        """
+
+        Args:
+            data_df (DataFrame): DataFrame containing the data.
+            top_percent (float, optional): Percentage of top data (as decimal) to compare with the entire KDE. Default is 0.10.
+            x_name (str, optional): Name of the column representing the independent variable. Default is "mfpReg_tanimoto".
+            y_name (str, optional): Name of the column representing the dependent variable. Default is "diff_homo".
+        """
+        sim_sorted = data_df[[x_name, y_name]].sort_values(by=[x_name, y_name], ascending=[False, True])
+        prop_sorted = data_df[[x_name, y_name]].sort_values(by=[y_name, x_name], ascending=[True, False])
+        cutoff_idx = int(len(prop_sorted.index) * top_percent)
+        prop_top_cutoff = prop_sorted.iloc[cutoff_idx][y_name]
+        top_sim_props = sim_sorted[:cutoff_idx][y_name]
+        ranking_ratio = (top_sim_props < prop_top_cutoff).sum() / top_sim_props.count()
+
+        return ranking_ratio
+
     def _get_total_docs(self):
         raise NotImplementedError
 
@@ -235,6 +254,29 @@ class SimilarityAnalysisBase:
             area_df[prop] = area_df.swifter.apply(
                 lambda x: enhancement_ratio(sample_pairs_df, x_name=x.sim, y_name=prop), axis=1)
             print("--> Finished NHR integral analysis for {}.".format(prop)) if self.verbose > 1 else None
+        area_df.set_index("sim", inplace=True)
+        if "diff_hl" in area_df.columns:
+            area_df.sort_values("diff_hl", inplace=True)
+
+        return area_df
+
+    def _generate_all_ranking_df(self, sample_pairs_df):
+        """
+        Parameters:
+        sample_pairs_df (pd.DataFrame): DataFrame containing the sample pairs data with similarity metrics and properties.
+
+        Returns:
+        pd.DataFrame: DataFrame with similarity metrics as rows and properties as columns, containing the KDE integral values.
+        """
+        # Initialize DataFrame to store KDE integral results
+        area_df = pd.DataFrame(index=range(len(self.sim_cols)), columns=[])
+        area_df["sim"] = self.sim_cols
+        sample_pairs_df.fillna(0, inplace=True)
+        print("--> Starting NHR integral analysis.") if self.verbose > 0 else None
+        for prop in [self.default_prop]:
+            area_df[prop] = area_df.swifter.apply(
+                lambda x: self.ranking_ratio(sample_pairs_df, x_name=x.sim, y_name=prop, top_percent=self.top_percent), axis=1)
+            print("--> Finished Ranking integral analysis for {}.".format(prop)) if self.verbose > 1 else None
         area_df.set_index("sim", inplace=True)
         if "diff_hl" in area_df.columns:
             area_df.sort_values("diff_hl", inplace=True)
@@ -439,7 +481,7 @@ class SimilarityAnalysisBase:
             return ax
         return avg_df
 
-    def rand_composite(self, size, num_trials=30, plot=True, replace_sim=None, neighborhood=False, norm_std_dev=None, 
+    def rand_composite(self, size, num_trials=30, plot=True, replace_sim=None, method="kde", norm_std_dev=None,
                        **plotting_kwargs):
         """
         Performs a composite analysis by sampling multiple datasets, applying KDE analysis, and aggregating results.
@@ -452,7 +494,7 @@ class SimilarityAnalysisBase:
         """
         avg_dfs = []
         comp_dir = self.data_dir / "composite_data"
-        ratio_name = "NeighborhoodRatios" if neighborhood else "IntegralRatios"
+        ratio_name = "IntegralRatios" if method=="kde" else "NeighborhoodRatios" if method=="nhr" else "RankingRatios" if method=="ranking" else ""
 
         # Iterate through multiple trials
         anal_name = f"{size}size_{self.perc_name}" + ("_" + replace_sim if replace_sim else "")
