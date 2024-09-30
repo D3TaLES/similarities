@@ -18,14 +18,14 @@ from similarities.settings import *
 
 
 class SimilarityAnalysisBase:
-    def __init__(self, kde_percent: float = 1, top_percent: float = 1,
+    def __init__(self, anal_percent: float = 1, top_percent: float = 1,
                  verbose: int = 3, anal_name: str = "SimAnalysis", replace_files=False,
                  elec_props: list = ELEC_PROPS, sim_metrics: dict = SIM_METRICS, fp_gens: dict = FP_GENS,
                  default_sim="mfpReg_tanimoto", default_prop="diff_homo"):
         """
 
         Parameters:
-        kde_percent (float):
+        anal_percent (float):
         top_percent (float):
         total_docs (int):
         verbose (int): Verbosity level (0 = silent, 1 = minimal output, 2 = detailed output).
@@ -41,10 +41,10 @@ class SimilarityAnalysisBase:
         self.verbose = verbose
         self.replace_files = replace_files
 
-        self.kde_percent = kde_percent / 100 if kde_percent > 1 else kde_percent
+        self.anal_percent = anal_percent / 100 if anal_percent > 1 else anal_percent
         self.top_percent = top_percent / 100 if top_percent > 1 else top_percent
-        self.percentile = 100 - (self.top_percent * self.kde_percent * 100)
-        self.perc_name = f"kde{int(self.kde_percent * 100):02d}_{int(self.top_percent * 100):02d}top"
+        self.percentile = 100 - (self.top_percent * self.anal_percent * 100)
+        self.perc_name = f"kde{int(self.anal_percent * 100):02d}_{int(self.top_percent * 100):02d}top"
         self.prop_cols = [f"diff_{ep}" for ep in elec_props]
         self.sim_cols = [f"{fp}_{s.lower()}" for fp in fp_gens.keys() for s in sim_metrics.keys()]
         self.sim_metrics = sim_metrics
@@ -62,7 +62,7 @@ class SimilarityAnalysisBase:
         self.default_prop = default_prop
 
     @staticmethod
-    def kde_integrals(data_df, kde_percent=1, top_percent=0.10, x_name="mfpReg_tanimoto", y_name="diff_homo",
+    def kde_integrals(data_df, anal_percent=1, top_percent=0.10, x_name="mfpReg_tanimoto", y_name="diff_homo",
                       bw_method=1,
                       top_min=None, prop_abs=True, plot_kde=False, plot_3d=False, save_fig=True, plot_dir=None,
                       verbose=2, return_kernel=False):
@@ -71,7 +71,7 @@ class SimilarityAnalysisBase:
 
         Args:
             data_df (DataFrame): DataFrame containing the data.
-            kde_percent (float, optional): Percentage of the data (as decimal) to consider for KDE estimation. Default is 1.
+            anal_percent (float, optional): Percentage of the data (as decimal) to consider for KDE estimation. Default is 1.
             top_percent (float, optional): Percentage of top data (as decimal) to compare with the entire KDE. Default is 0.10.
             x_name (str, optional): Name of the column representing the independent variable. Default is "mfpReg_tanimoto".
             y_name (str, optional): Name of the column representing the dependent variable. Default is "diff_homo".
@@ -92,7 +92,7 @@ class SimilarityAnalysisBase:
             If `plot_kde` is True, the function will also plot the KDE contour and a vertical line representing the top percentile divide. It will save the plot as an image file.
       """
         data_df.sort_values(by=[x_name, y_name], ascending=[False, True], inplace=True)
-        kde_data = data_df[:int(len(data_df.index) * kde_percent)]
+        kde_data = data_df[:int(len(data_df.index) * anal_percent)]
         print(f"KDE percent {x_name} min: {kde_data[x_name].min()}") if verbose > 2 else None
         if prop_abs:
             kde_data.loc[:, y_name] = kde_data[y_name].apply(abs)
@@ -151,13 +151,13 @@ class SimilarityAnalysisBase:
             # ax.text(x.max() - 0.13, y.max() - 1, f"Area: {percent_top_area * 100:.2f}%", fontsize=14)
             if save_fig:
                 plt.savefig(os.path.join(plot_dir, f"{'3D' if plot_3d else ''}SingleKDEPlt_kde"
-                                                   f"{int(kde_percent * 100):02d}_{int(top_percent * 100):02d}top_"
+                                                   f"{int(anal_percent * 100):02d}_{int(top_percent * 100):02d}top_"
                                                    f"{x_name}_{y_name.strip('diff_')}{'_abs' if prop_abs else ''}.png"),
                             dpi=300)
         return (percent_top_area, kernel) if return_kernel else percent_top_area
 
     @staticmethod
-    def ranking_ratio(data_df, top_percent=0.10, x_name="mfpReg_tanimoto", y_name="diff_homo"):
+    def ranking_ratio(data_df, top_percent=0.10, anal_percent=1, x_name="mfpReg_tanimoto", y_name="diff_homo"):
         """
 
         Args:
@@ -166,6 +166,9 @@ class SimilarityAnalysisBase:
             x_name (str, optional): Name of the column representing the independent variable. Default is "mfpReg_tanimoto".
             y_name (str, optional): Name of the column representing the dependent variable. Default is "diff_homo".
         """
+        data_df.sort_values(by=[x_name, y_name], ascending=[False, True], inplace=True)
+        ranking_data = data_df[:int(len(data_df.index) * anal_percent)]
+        
         sim_sorted = data_df[[x_name, y_name]].sort_values(by=[x_name, y_name], ascending=[False, True])
         prop_sorted = data_df[[x_name, y_name]].sort_values(by=[y_name, x_name], ascending=[True, False])
         cutoff_idx = int(len(prop_sorted.index) * top_percent)
@@ -203,7 +206,7 @@ class SimilarityAnalysisBase:
         else:
             df = pd.read_csv(sample_pairs_csv, index_col=0)
         print("Starting analysis...") if self.verbose else None
-        perc = self.kde_integrals(df, x_name=x, y_name=y, kde_percent=self.kde_percent, plot_dir=self.plot_dir,
+        perc = self.kde_integrals(df, x_name=x, y_name=y, anal_percent=self.anal_percent, plot_dir=self.plot_dir,
                                   verbose=self.verbose, **kwargs)
         return (perc, df) if return_df else perc
 
@@ -225,7 +228,7 @@ class SimilarityAnalysisBase:
         print("--> Starting KDE integral analysis.") if self.verbose > 0 else None
         for prop in self.prop_cols:
             area_df[prop] = area_df.swifter.apply(
-                lambda x: self.kde_integrals(sample_pairs_df, kde_percent=self.kde_percent,
+                lambda x: self.kde_integrals(sample_pairs_df, anal_percent=self.anal_percent,
                                              top_percent=self.top_percent, verbose=self.verbose,
                                              x_name=x.sim, y_name=prop, plot_dir=self.plot_dir, **kwargs),
                 axis=1)
@@ -236,7 +239,7 @@ class SimilarityAnalysisBase:
 
         return area_df
 
-    def _generate_all_nhr_df(self, sample_pairs_df):
+    def _generate_all_nhr_df(self, sample_pairs_df, **kwargs):
         """
         Parameters:
         sample_pairs_df (pd.DataFrame): DataFrame containing the sample pairs data with similarity metrics and properties.
@@ -252,7 +255,7 @@ class SimilarityAnalysisBase:
         from similarities.neighborhood_ratios import enhancement_ratio
         for prop in [self.default_prop]:
             area_df[prop] = area_df.swifter.apply(
-                lambda x: enhancement_ratio(sample_pairs_df, x_name=x.sim, y_name=prop), axis=1)
+                lambda x: enhancement_ratio(sample_pairs_df, x_name=x.sim, y_name=prop, **kwargs), axis=1)
             print("--> Finished NHR integral analysis for {}.".format(prop)) if self.verbose > 1 else None
         area_df.set_index("sim", inplace=True)
         if "diff_hl" in area_df.columns:
@@ -272,10 +275,10 @@ class SimilarityAnalysisBase:
         area_df = pd.DataFrame(index=range(len(self.sim_cols)), columns=[])
         area_df["sim"] = self.sim_cols
         sample_pairs_df.fillna(0, inplace=True)
-        print("--> Starting NHR integral analysis.") if self.verbose > 0 else None
+        print("--> Starting ranking integral analysis.") if self.verbose > 0 else None
         for prop in [self.default_prop]:
             area_df[prop] = area_df.swifter.apply(
-                lambda x: self.ranking_ratio(sample_pairs_df, x_name=x.sim, y_name=prop, top_percent=self.top_percent), axis=1)
+                lambda x: self.ranking_ratio(sample_pairs_df, x_name=x.sim, y_name=prop, anal_percent=self.anal_percent, top_percent=self.top_percent), axis=1)
             print("--> Finished Ranking integral analysis for {}.".format(prop)) if self.verbose > 1 else None
         area_df.set_index("sim", inplace=True)
         if "diff_hl" in area_df.columns:
@@ -360,7 +363,7 @@ class SimilarityAnalysisBase:
 
         return new_df
 
-    def _get_sample_pairs_df(self, i, size, kde_percent=1, replace_sim=False, norm_std_dev=None):
+    def _get_sample_pairs_df(self, i, size, anal_percent=1, replace_sim=False, norm_std_dev=None):
         """
         Parameters:
         size (int): Number of documents to sample for each trial.
@@ -373,7 +376,7 @@ class SimilarityAnalysisBase:
         sample_pairs_csv = comp_dir / f"Combo_{size}size_{i:02d}.csv"
         if not os.path.isfile(sample_pairs_csv):
             # Establish one variable, _working_df, so only one DataFrame is held in memory
-            _working_df = self._random_sample(size=size, kde_percent=kde_percent)
+            _working_df = self._random_sample(size=size, anal_percent=anal_percent)
             _working_df.to_csv(sample_pairs_csv)
         else:
             _working_df = pd.read_csv(sample_pairs_csv, index_col=0)
@@ -430,6 +433,7 @@ class SimilarityAnalysisBase:
     def plot_avg_df(self, avg_df, ylims=None, ax=None, std_values=None, return_plot=True, red_labels=True, 
                     upper_bound=None, lower_bound=None, soft_upper_bound=None, soft_lower_bound=None,
                     ratio_name=None, anal_name=None):
+        main_plot_color = "blue"
         if std_values is not None:
             
             sort_value = (std_values.mean(axis=1) + std_values.std(axis=1)).sort_values()
@@ -438,14 +442,15 @@ class SimilarityAnalysisBase:
         
             ax = sns.scatterplot(avg_df, s=10)
             std_mean, std_stdev = std_values.mean(axis=1), std_values.std(axis=1)
-            ax.plot(std_mean, label='Mean', color='red')
-            ax.fill_between(std_mean.index, std_mean - std_stdev, std_mean + std_stdev, color='red', alpha=0.2,
-                            label='Full Dataset Values')
+            ax.plot(std_mean, label='Mean', color='blue')
+            # ax.fill_between(std_mean.index, std_mean - std_stdev, std_mean + std_stdev, color='blue', alpha=0.2,
+            #                 label='Full Dataset Values')
+            main_plot_color = "red"
         else:
             ax = sns.scatterplot(avg_df, s=10, ax=ax)
         mean_row, std_row = avg_df.mean(axis=1), avg_df.std(axis=1)
-        ax.plot(mean_row, label='Mean', color='blue')
-        ax.fill_between(mean_row.index, mean_row - std_row, mean_row + std_row, color='blue', alpha=0.2,
+        ax.plot(mean_row, label='Mean', color=main_plot_color)
+        ax.fill_between(mean_row.index, mean_row - std_row, mean_row + std_row, color=main_plot_color, alpha=0.2,
                         label='1 Std Dev')
         sns.move_legend(ax, "upper left", bbox_to_anchor=(1, 1))
 
@@ -460,16 +465,14 @@ class SimilarityAnalysisBase:
         if ylims:
             ax.set_ylim(*ylims)
         if upper_bound is not None:
-            ax.axhline(y=upper_bound, color='black', linestyle='-', linewidth=2, label=f'Upper Bound ({upper_bound})')
+            ax.axhline(y=upper_bound, color='black', linestyle='solid', linewidth=2, label=f'Strong Upper Bound ({upper_bound})')
         if soft_upper_bound is not None:
-            ax.axhline(y=soft_upper_bound, color='black', linestyle='--', linewidth=2,
-                       label=f'Soft Upper Bound ({upper_bound})')
+            ax.axhline(y=soft_upper_bound, color='black', linestyle='dotted', linewidth=2, label=f'Soft Upper Bound ({soft_upper_bound})')
 
         if soft_lower_bound is not None:
-            ax.axhline(y=soft_lower_bound, color='black', linestyle='--', linewidth=2,
-                       label=f'Soft Lower Bound ({lower_bound})')
+            ax.axhline(y=soft_lower_bound, color='black', linestyle='dashed', linewidth=2, label=f'Soft Lower Bound ({soft_lower_bound})')
         if lower_bound is not None:
-            ax.axhline(y=lower_bound, color='black', linestyle='-', linewidth=2, label=f'Lower Bound ({lower_bound})')
+            ax.axhline(y=lower_bound, color='black', linestyle='dashdot', linewidth=2, label=f'Strong Lower Bound ({lower_bound})')
 
         ax.set_xlabel("Similarity Measure")
         ax.set_ylabel(f"Average {ratio_name}")
@@ -481,7 +484,7 @@ class SimilarityAnalysisBase:
             return ax
         return avg_df
 
-    def rand_composite(self, size, num_trials=30, plot=True, replace_sim=None, method="kde", norm_std_dev=None,
+    def rand_composite(self, size, num_trials=30, plot=True, replace_sim=None, method="kde", norm_std_dev=None, t_x=None,
                        **plotting_kwargs):
         """
         Performs a composite analysis by sampling multiple datasets, applying KDE analysis, and aggregating results.
@@ -497,7 +500,7 @@ class SimilarityAnalysisBase:
         ratio_name = "IntegralRatios" if method=="kde" else "NeighborhoodRatios" if method=="nhr" else "RankingRatios" if method=="ranking" else ""
 
         # Iterate through multiple trials
-        anal_name = f"{size}size_{self.perc_name}" + ("_" + replace_sim if replace_sim else "")
+        anal_name = f"{size}size_{self.perc_name}" + (f"_{replace_sim}" if replace_sim else "") + (f"_incpt{t_x}" if t_x is not None else "")
         for i in range(num_trials):
             print("Creating data sample with random seed {}...".format(i)) if self.verbose else None
 
@@ -508,7 +511,7 @@ class SimilarityAnalysisBase:
                 if method == "kde":
                     self._generate_all_kde_df(_working_df)
                 elif method == "nhr":
-                    _working_df = self._generate_all_nhr_df(_working_df)
+                    _working_df = self._generate_all_nhr_df(_working_df, t_x=t_x)
                 elif method == "ranking":
                     _working_df = self._generate_all_ranking_df(_working_df)
                 else:
@@ -585,13 +588,13 @@ class SimilarityAnalysisBase:
 
 
 class SimilarityAnalysisRand(SimilarityAnalysisBase):
-    def __init__(self, kde_percent: float = 1, top_percent: float = 1, orig_df: pd.DataFrame = None, smiles_pickle: str = None,
+    def __init__(self, anal_percent: float = 1, top_percent: float = 1, orig_df: pd.DataFrame = None, smiles_pickle: str = None,
                  verbose: int = 3, anal_name: str = "SimAnalysis", elec_props: list = ELEC_PROPS,
                  sim_metrics: dict = SIM_METRICS, fp_gens: dict = FP_GENS, **kwargs):
         """
 
         Parameters:
-        kde_percent (float):
+        anal_percent (float):
         top_percent (float):
         total_docs (int):
         verbose (int): Verbosity level (0 = silent, 1 = minimal output, 2 = detailed output).
@@ -603,7 +606,7 @@ class SimilarityAnalysisRand(SimilarityAnalysisBase):
         mongo_coll (str): MongoDB collection name. Default is MONGO_PAIRS_COLL.
 
         """
-        super().__init__(kde_percent=kde_percent, top_percent=top_percent, verbose=verbose, anal_name=anal_name,
+        super().__init__(anal_percent=anal_percent, top_percent=top_percent, verbose=verbose, anal_name=anal_name,
                          elec_props=elec_props, sim_metrics=sim_metrics, fp_gens=fp_gens, **kwargs)
         self.molecules_df = self._generate_molecules_df(orig_df=orig_df, smiles_pickle=smiles_pickle)
         self.all_ids = self.molecules_df.index.tolist()
@@ -691,14 +694,14 @@ class SimilarityAnalysisRand(SimilarityAnalysisBase):
 
 
 class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
-    def __init__(self, kde_percent = 1, top_percent = 1,
+    def __init__(self, anal_percent = 1, top_percent = 1,
                  total_docs=353314653, verbose=3,
                  elec_props=ELEC_PROPS, sim_metrics=SIM_METRICS, fp_gens=FP_GENS,
                  mongo_uri=MONGO_CONNECT, mongo_db=MONGO_DB, mongo_coll=MONGO_PAIRS_COLL, **kwargs):
         """
 
         Parameters:
-        kde_percent (float):
+        anal_percent (float):
         top_percent (float):
         total_docs (int):
         verbose (int): Verbosity level (0 = silent, 1 = minimal output, 2 = detailed output).
@@ -711,7 +714,7 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
 
         """
         self.total_docs = total_docs
-        super().__init__(kde_percent=kde_percent, top_percent=top_percent, verbose=verbose, anal_name=mongo_coll,
+        super().__init__(anal_percent=anal_percent, top_percent=top_percent, verbose=verbose, anal_name=mongo_coll,
                          elec_props=elec_props, sim_metrics=sim_metrics, fp_gens=fp_gens, **kwargs)
         self.mongo_uri = mongo_uri
         self.mongo_db = mongo_db
@@ -752,7 +755,7 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
 
             return doc[field]
 
-    def _random_sample(self, x=None, y=None, kde_percent=None, size=1000):
+    def _random_sample(self, x=None, y=None, anal_percent=None, size=1000):
         """
         Retrieves a random sample of documents from a MongoDB collection, with options to sort, limit,
         and project specific fields.
@@ -768,14 +771,14 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
         # Create the aggregation pipeline for MongoDB
         pipeline = [{"$sample": {"size": size}}]  # Randomly select 'size' number of documents
         pipeline.append(
-            {"$limit": size * kde_percent}) if kde_percent else None  # Limit to the top 'num_top_docs' documents
+            {"$limit": size * anal_percent}) if anal_percent else None  # Limit to the top 'num_top_docs' documents
         pipeline.append({"$sort": {x: -1}}) if x else None  # Sort by the specified field in ascending order
         pipeline.append({'$project': {v: 1 for v in [x, y] if v}}) if (
                 x or y) else None  # Include only the fields 'x' and 'y'
 
         with MongoClient(self.mongo_uri) as client:
             print(
-                f"Starting query to select top {size * kde_percent} of {size} random docs...") if self.verbose else None
+                f"Starting query to select top {size * anal_percent} of {size} random docs...") if self.verbose else None
             results = list(client[self.mongo_db][self.mongo_coll].aggregate(pipeline, allowDiskUse=True))
             df = pd.DataFrame(results).set_index("_id")
         return df
@@ -800,7 +803,7 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
         # Set up batch analysis
         sim = sim or self.default_sim
         prop = prop or self.default_prop
-        anal_num = round(self.total_docs * self.kde_percent)
+        anal_num = round(self.total_docs * self.anal_percent)
         total_processed = 0
         result_list = []
         perc = 1
@@ -833,7 +836,7 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
                 if d_min == d_max:  # If the DF covers no range, the percent KDE will fail.
                     perc, kernel = 1 if d_min > divide else 0, None
                 else:
-                    perc, kernel = self.kde_integrals(b_df, x_name=sim, y_name=prop, kde_percent=1, top_min=divide,
+                    perc, kernel = self.kde_integrals(b_df, x_name=sim, y_name=prop, anal_percent=1, top_min=divide,
                                                       top_percent=self.top_percent, verbose=self.verbose,
                                                       plot_dir=self.plot_dir, return_kernel=True, **kwargs)
             result_list.append({"percent": perc, "length": b_df.shape[0], "kernel": kernel})
@@ -873,10 +876,10 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
         # Calculate the index to skip to reach the top percentile
         divide = divide or self.find_percentile(sim, percentile=self.percentile)
         print(f"{sim} {self.percentile} percentile value ({self.top_percent * 100} percentile of top "
-              f"{self.kde_percent * 100}%): ", divide) if self.verbose > 1 else None
+              f"{self.anal_percent * 100}%): ", divide) if self.verbose > 1 else None
 
         # Set up batch analysis
-        anal_num = round(self.total_docs * self.kde_percent)
+        anal_num = round(self.total_docs * self.anal_percent)
 
         print(f"Starting analysis for {anal_num} docs...") if self.verbose > 1 else None
         if batch_size:
@@ -888,7 +891,7 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
                     {sim: -1, prop: 1, "_id": 1}).limit(anal_num)
                 b_df = pd.DataFrame(list(cursor))
 
-            perc, kernel_results = self.kde_integrals(b_df, x_name=sim, y_name=prop, kde_percent=1, top_min=divide,
+            perc, kernel_results = self.kde_integrals(b_df, x_name=sim, y_name=prop, anal_percent=1, top_min=divide,
                                                       top_percent=self.top_percent, verbose=self.verbose,
                                                       plot_dir=self.plot_dir, return_kernel=True, **kwargs)
         print(f"KDE Top Area for {sim} and {prop}: {perc}") if self.verbose else None
@@ -924,7 +927,7 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
         # Calculate divide
         divide = self.find_percentile(sim_metric, percentile=self.percentile)
         print(f"--> {sim_metric} {self.percentile} percentile value ({self.top_percent * 100} percentile of top "
-              f"{self.kde_percent * 100}%): ", divide) if self.verbose > 1 else None
+              f"{self.anal_percent * 100}%): ", divide) if self.verbose > 1 else None
         area_df.at[sim_metric, "divide"] = divide
         area_df.to_csv(self.divides_file)
         return divide

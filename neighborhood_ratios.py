@@ -115,7 +115,7 @@ def find_diagonal(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo"):
     return result.x
 
 
-def enhancement_ratio(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo", plot=False):
+def enhancement_ratio(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo", plot=False, t_x=None):
     """
     Calculates the neighborhood ratio, a metric that compares the density of points in a specified region of a 2D plot
     to the overall density of points. From Journal of Medicinal Chemistry, 1996, Vol. 39, No. 16
@@ -125,6 +125,7 @@ def enhancement_ratio(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo", plo
     - x_name (str, optional): The name of the column representing the x-coordinates. Default is "mfpReg_tanimoto".
     - y_name (str, optional): The name of the column representing the y-coordinates. Default is "diff_homo".
     - plot (bool, optional): If True, plots the data points and the diagonal line. Default is False.
+    - t_x (float): A manual  x-coordinate of the reference point on the diagonal line. Default is None
 
     Returns:
     - float: The neighborhood ratio.
@@ -135,7 +136,7 @@ def enhancement_ratio(data_df, x_name="mfpReg_tanimoto", y_name="diff_homo", plo
     y_max = df_i[y_name].max()
 
     # Find diagonal line and compute point densities.
-    t_x = find_diagonal(df_i, x_name=x_name, y_name=y_name)
+    t_x = t_x if t_x is not None else find_diagonal(df_i, x_name=x_name, y_name=y_name)
     triangle_density = lr_triangle_density(t_x, df_i, x_name=x_name, y_name=y_name)
     total_density = df_i.shape[0] / (1 * y_max)
     enhance_ratio = triangle_density / total_density
