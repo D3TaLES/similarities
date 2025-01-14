@@ -52,7 +52,8 @@ class SimilarityAnalysisBase:
         self.fp_dict = fp_gens
 
         self.data_dir = DATA_DIR / anal_name
-        os.makedirs(self.data_dir, exist_ok=True)
+        os.makedirs(self.data_dir, exist_ok=True) 
+        os.makedirs(self.data_dir / "random_sampling" , exist_ok=True)
         self.plot_dir = PLOT_DIR / anal_name
         os.makedirs(self.plot_dir, exist_ok=True)
         self.batch_kde_file = self.data_dir / f"IntegralRatios_allDB_{self.perc_name}.csv"
@@ -200,7 +201,7 @@ class SimilarityAnalysisBase:
         """
         x = x or self.default_sim
         y = y or self.default_sim
-        sample_pairs_csv = self.data_dir / "composite_data" / f"Combo_{size}size_{rand_seed:02d}.csv"
+        sample_pairs_csv = self.data_dir / "random_sampling" / f"Combo_{size}size_{rand_seed:02d}.csv"
         if not os.path.isfile(sample_pairs_csv):
             df = self._random_sample(size=size)
         else:
@@ -236,7 +237,7 @@ class SimilarityAnalysisBase:
         area_df.set_index("sim", inplace=True)
         if "diff_hl" in area_df.columns:
             area_df.sort_values("diff_hl", inplace=True)
-
+        
         return area_df
 
     def _generate_all_nhr_df(self, sample_pairs_df, **kwargs):
@@ -286,6 +287,23 @@ class SimilarityAnalysisBase:
 
         return area_df
 
+    def _random_similarities(self, base_df, ):
+        """
+        Parameters:
+        base_df (pd.DataFrame): DataFrame containing the sample pairs data with similarity metrics and properties.
+
+        Returns:
+        pd.DataFrame: DataFrame with similarity metrics as rows and properties as columns, containing the KDE integral values.
+        """
+        num_rows = base_df.shape[0]
+        new_df = base_df.copy()
+
+        for p in self.prop_cols:
+            new_df[p] = np.random.uniform(0, 1, num_rows)
+
+        for s in [s for s in self.sim_cols if s in new_df.columns]:
+            new_df[s] = np.random.uniform(0, 1, num_rows)
+        return new_df
     def _uniform_similarities(self, base_df, corr_cutoff=False, prop="diff_homo"):
         """
         Parameters:
@@ -370,7 +388,7 @@ class SimilarityAnalysisBase:
         replace_sim (bool, optional):
 
         """
-        comp_dir = self.data_dir / "composite_data"
+        comp_dir = self.data_dir / "random_sampling"
 
         # If sample_pairs_csv does not exist, generate a new random sample and save to CSV
         sample_pairs_csv = comp_dir / f"Combo_{size}size_{i:02d}.csv"
@@ -397,13 +415,14 @@ class SimilarityAnalysisBase:
                     _working_df = self._normal_similarities(_working_df, std_dev=norm_std_dev)
                 elif replace_sim == "normalCorr":
                     _working_df = self._normal_similarities(_working_df, corr_cutoff=True, std_dev=norm_std_dev)
+                elif replace_sim == "random":
+                    _working_df = self._random_similarities(_working_df)
                 else:
                     raise Exception(f"No replacement method found for replace_sim {replace_sim}.")
 
                 _working_df.to_csv(replace_csv)
             else:
                 _working_df = pd.read_csv(replace_csv, index_col=0)
-            print(replace_csv)
 
         return _working_df[self.sim_cols + self.prop_cols]
 
@@ -432,8 +451,7 @@ class SimilarityAnalysisBase:
 
     def plot_avg_df(self, avg_df, ylims=None, ax=None, std_values=None, return_plot=True, red_labels=True, 
                     upper_bound=None, lower_bound=None, soft_upper_bound=None, soft_lower_bound=None,
-                    ratio_name=None, anal_name=None):
-        main_plot_color = "blue"
+                    ratio_name=None, anal_name=None, main_plot_color = "blue"):
         if std_values is not None:
             
             sort_value = (std_values.mean(axis=1) + std_values.std(axis=1)).sort_values()
@@ -465,17 +483,18 @@ class SimilarityAnalysisBase:
         if ylims:
             ax.set_ylim(*ylims)
         if upper_bound is not None:
-            ax.axhline(y=upper_bound, color='black', linestyle='solid', linewidth=2, label=f'Strong Upper Bound ({upper_bound})')
+            ax.axhline(y=upper_bound, color='black', linestyle='dashdot', linewidth=2, label=f'Upper Bound ({upper_bound})')
         if soft_upper_bound is not None:
-            ax.axhline(y=soft_upper_bound, color='black', linestyle='dotted', linewidth=2, label=f'Soft Upper Bound ({soft_upper_bound})')
+            ax.axhline(y=soft_upper_bound, color='black', linestyle='dotted', linewidth=2, label=f'Weak Upper Bound ({soft_upper_bound})')
 
         if soft_lower_bound is not None:
-            ax.axhline(y=soft_lower_bound, color='black', linestyle='dashed', linewidth=2, label=f'Soft Lower Bound ({soft_lower_bound})')
+            ax.axhline(y=soft_lower_bound, color='black', linestyle='dashed', linewidth=2, label=f'Weak Lower Bound ({soft_lower_bound})')
         if lower_bound is not None:
-            ax.axhline(y=lower_bound, color='black', linestyle='dashdot', linewidth=2, label=f'Strong Lower Bound ({lower_bound})')
+            ax.axhline(y=lower_bound, color='black', linestyle='solid', linewidth=2, label=f'Lower Bound ({lower_bound})')
 
         ax.set_xlabel("Similarity Measure")
-        ax.set_ylabel(f"Average {ratio_name}")
+        y_axis_name = "Top Area Ratio" if ratio_name == "IntegralRatios" else ratio_name
+        ax.set_ylabel(f"Average {y_axis_name}")
         ax.set_title(anal_name.replace("_", " ").capitalize())
         plt.tight_layout()
         plt.savefig(self.plot_dir / f"Avg{ratio_name}_{anal_name}.png", dpi=300)
@@ -484,10 +503,10 @@ class SimilarityAnalysisBase:
             return ax
         return avg_df
 
-    def rand_composite(self, size, num_trials=30, plot=True, replace_sim=None, method="kde", norm_std_dev=None, t_x=None,
+    def random_sampling(self, size, num_trials=30, plot=True, replace_sim=None, method="kde", norm_std_dev=None, t_x=None,
                        **plotting_kwargs):
         """
-        Performs a composite analysis by sampling multiple datasets, applying KDE analysis, and aggregating results.
+        Performs a random sampling analysis by sampling multiple datasets, applying KDE analysis, and aggregating results.
 
         Parameters:
         size (int): Number of documents to sample for each trial.
@@ -496,7 +515,7 @@ class SimilarityAnalysisBase:
 
         """
         avg_dfs = []
-        comp_dir = self.data_dir / "composite_data"
+        comp_dir = self.data_dir / "random_sampling"
         ratio_name = "IntegralRatios" if method=="kde" else "NeighborhoodRatios" if method=="nhr" else "RankingRatios" if method=="ranking" else ""
 
         # Iterate through multiple trials
@@ -507,23 +526,23 @@ class SimilarityAnalysisBase:
             # Check if the area_df_csv file exists
             area_df_csv = comp_dir / f"{ratio_name}_{anal_name}_Rand{i:02d}.csv"
             if not os.path.isfile(area_df_csv) or self.replace_files:
-                _working_df = self._get_sample_pairs_df(i=i, size=size, replace_sim=replace_sim, norm_std_dev=norm_std_dev)
+                _pairs_df = self._get_sample_pairs_df(i=i, size=size, replace_sim=replace_sim, norm_std_dev=norm_std_dev)
                 if method == "kde":
-                    self._generate_all_kde_df(_working_df)
+                    _results_df = self._generate_all_kde_df(_pairs_df)
                 elif method == "nhr":
-                    _working_df = self._generate_all_nhr_df(_working_df, t_x=t_x)
+                    _results_df = self._generate_all_nhr_df(_pairs_df, t_x=t_x)
                 elif method == "ranking":
-                    _working_df = self._generate_all_ranking_df(_working_df)
+                    _results_df = self._generate_all_ranking_df(_pairs_df)
                 else:
                     raise KeyError(f"Method {method} is not an available method." )
-                _working_df.to_csv(area_df_csv)
+                _results_df.to_csv(area_df_csv)
             else:
-                _working_df = pd.read_csv(area_df_csv, index_col=0)
+                _results_df = pd.read_csv(area_df_csv, index_col=0)
 
             # Append the average series of the DataFrame to avg_dfs list
-            avg_dfs.append(pd.Series(_working_df.mean(axis=1)))
+            avg_dfs.append(pd.Series(_results_df.mean(axis=1)))
 
-        # Concatenate all average series into avg_df DataFrame
+        print("Concatenate all average series into avg_df DataFrame...") if self.verbose > 1 else None
         avg_df = pd.concat(avg_dfs, axis=1)
 
         # Sort avg_df by the maximum value in each row
@@ -531,17 +550,19 @@ class SimilarityAnalysisBase:
         avg_df = avg_df.reindex(sort_value.index)
 
         # Save avg_df to CSV
+        print(f"Saving data to file: Avg{ratio_name}_{anal_name}.csv...", ) if self.verbose > 1 else None
         avg_df.to_csv(comp_dir / f"Avg{ratio_name}_{anal_name}.csv")
 
         # Plotting if plot=True
         if plot:
+            print("Plotting data...") if self.verbose > 1 else None
             return self.plot_avg_df(avg_df, ratio_name=ratio_name, anal_name=anal_name+f"{num_trials:02d}trials", **plotting_kwargs)
         return avg_df
 
-    def rand_composite_percentiles(self, size, num_trials=30, plot=True, replace_sim=None, ylims=None, ax=None,
+    def random_sampling_percentiles(self, size, num_trials=30, plot=True, replace_sim=None, ylims=None, ax=None,
                                    std_percentiles=None):
         """
-        Performs a composite analysis by sampling multiple datasets, applying KDE analysis, and aggregating results.
+        Performs a random sampling analysis by sampling multiple datasets, applying KDE analysis, and aggregating results.
 
         Parameters:
         size (int): Number of documents to sample for each trial.
@@ -550,7 +571,7 @@ class SimilarityAnalysisBase:
 
         """
         divides_df = pd.DataFrame(index=self.sim_cols, columns=[i for i in range(num_trials)])
-        comp_dir = self.data_dir / "composite_data"
+        comp_dir = self.data_dir / "random_sampling"
 
         # Iterate through multiple trials
         anal_name = f"{size}size_{self.perc_name}" + (replace_sim if replace_sim else "")
@@ -606,12 +627,13 @@ class SimilarityAnalysisRand(SimilarityAnalysisBase):
         mongo_coll (str): MongoDB collection name. Default is MONGO_PAIRS_COLL.
 
         """
+        self.molecules_df = self._generate_molecules_df(orig_df=orig_df, smiles_pickle=smiles_pickle, fp_dict=fp_gens)
         super().__init__(anal_percent=anal_percent, top_percent=top_percent, verbose=verbose, anal_name=anal_name,
                          elec_props=elec_props, sim_metrics=sim_metrics, fp_gens=fp_gens, **kwargs)
-        self.molecules_df = self._generate_molecules_df(orig_df=orig_df, smiles_pickle=smiles_pickle)
         self.all_ids = self.molecules_df.index.tolist()
 
-    def _generate_molecules_df(self, orig_df: pd.DataFrame = None, smiles_pickle: str = None):
+    @staticmethod
+    def _generate_molecules_df(orig_df: pd.DataFrame = None, smiles_pickle: str = None, fp_dict=FP_GENS):
         """
         Generates a DataFrame of molecules with specified fingerprints from either an original DataFrame or a pickle file
         containing SMILES strings.
@@ -624,22 +646,26 @@ class SimilarityAnalysisRand(SimilarityAnalysisBase):
         Returns:
         pd.DataFrame: DataFrame containing molecules with generated fingerprints.
             """
-        if not orig_df:
+        if orig_df is None:
             if not os.path.isfile(smiles_pickle):
                 raise IOError("No DF pickle file found at {}. This function requires either an original_df argument or"
                               "a valid DF pickle file location".format(smiles_pickle))
-            orig_df = pd.read_pickle(smiles_pickle)
+            if smiles_pickle.endswith(".csv"): 
+                orig_df = pd.read_csv(smiles_pickle)
+            else: 
+                orig_df = pd.read_pickle(smiles_pickle)
 
         if 'mol' not in orig_df.columns:
             if 'smiles' not in orig_df.columns:
                 raise KeyError(f'Column "smiles" not found in {smiles_pickle} columns')
             orig_df['mol'] = orig_df.smiles.apply(lambda x: Chem.MolFromSmiles(x))
-        for fp_name, fpgen in self.fp_dict.items():
+        for fp_name, fpgen in fp_dict.items():
             print(f"FP Generation Method: {fp_name}")
             if fp_name not in orig_df.columns:
                 orig_df[fp_name] = orig_df.mol.apply(lambda x: fpgen(x).ToBase64())
             else:
                 orig_df[fp_name] = orig_df[fp_name].apply(lambda x: x.ToBase64())
+        orig_df.index = orig_df.index.astype(str)
         return orig_df
 
     def _get_total_docs(self):
@@ -652,7 +678,7 @@ class SimilarityAnalysisRand(SimilarityAnalysisBase):
             id_2 = random.choice(self.all_ids)
         return "__".join(sorted([str(id_1), str(id_2)]))
 
-    def _get_pair_data(self, pair_id, elec_props=None, fp_dict=None, sim_metrics=None):
+    def _get_pair_data(self, pair_id, elec_props=None, fp_dict=None, sim_metrics=None, **kwargs):
         """
         """
         id_1, id_2 = pair_id.split("__")
@@ -685,7 +711,7 @@ class SimilarityAnalysisRand(SimilarityAnalysisBase):
         while len(ids) < size:
             ids = set(list(ids) + [self._rand_id()])
 
-        print(f"Generating ") if self.verbose > 3 else None
+        print(f"Generating random sample") if self.verbose > 3 else None
         all_data = [self._get_pair_data(i, **kwargs) for i in ids]
 
         sample_df = pd.DataFrame(all_data)
