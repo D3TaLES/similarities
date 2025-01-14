@@ -1,5 +1,4 @@
 import os
-import swifter
 import random
 import pymongo
 import numpy as np
@@ -163,6 +162,7 @@ class SimilarityAnalysisBase:
         Args:
             data_df (DataFrame): DataFrame containing the data.
             top_percent (float, optional): Percentage of top data (as decimal) to compare with the entire KDE. Default is 0.10.
+            anal_percent (float, optional): Top percentage of data_df to include in the analysis. Default is 1 (all).
             x_name (str, optional): Name of the column representing the independent variable. Default is "mfpReg_tanimoto".
             y_name (str, optional): Name of the column representing the dependent variable. Default is "diff_homo".
         """
