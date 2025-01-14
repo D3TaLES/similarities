@@ -24,9 +24,9 @@ class SimilarityAnalysisBase:
         """
 
         Parameters:
-        anal_percent (float):
-        top_percent (float):
-        total_docs (int):
+        anal_percent (float): Top percent of data to use in the analysis
+        top_percent (float): Top percent of the data to use to calculate the top area ratio
+        total_docs (int): Total number of molecule pair data entries
         verbose (int): Verbosity level (0 = silent, 1 = minimal output, 2 = detailed output).
         elec_props (list): List of electronic properties to calculate differences.
         sim_metrics (dict): Dictionary of similarity metrics to calculate.
@@ -81,7 +81,7 @@ class SimilarityAnalysisBase:
             plot_kde (bool, optional): Whether to plot the KDE and related information. Default is False.
             plot_3d (bool, optional): Whether to plot the KDE in 3D. Default is False.
             save_fig (bool, optional): Whether to save KDE plot. Default is True.
-            plot_dir (str, optional):
+            plot_dir (str, optional): Directory in which to save the plot. Default is None.
             verbose (int, optional): Verbosity level (0 = silent, 1 = minimal output, 2 = detailed output).
             return_kernel (bool, optional): Whether to return the kernel. Default is False.
 
@@ -159,7 +159,7 @@ class SimilarityAnalysisBase:
     @staticmethod
     def ranking_ratio(data_df, top_percent=0.10, anal_percent=1, x_name="mfpReg_tanimoto", y_name="diff_homo"):
         """
-
+        Get the percent of the top ranked similar molecules that are also the top ranked in terms of property difference
         Args:
             data_df (DataFrame): DataFrame containing the data.
             top_percent (float, optional): Percentage of top data (as decimal) to compare with the entire KDE. Default is 0.10.
@@ -169,9 +169,9 @@ class SimilarityAnalysisBase:
         """
         data_df.sort_values(by=[x_name, y_name], ascending=[False, True], inplace=True)
         ranking_data = data_df[:int(len(data_df.index) * anal_percent)]
-        
-        sim_sorted = data_df[[x_name, y_name]].sort_values(by=[x_name, y_name], ascending=[False, True])
-        prop_sorted = data_df[[x_name, y_name]].sort_values(by=[y_name, x_name], ascending=[True, False])
+
+        sim_sorted = ranking_data[[x_name, y_name]].sort_values(by=[x_name, y_name], ascending=[False, True])
+        prop_sorted = ranking_data[[x_name, y_name]].sort_values(by=[y_name, x_name], ascending=[True, False])
         cutoff_idx = int(len(prop_sorted.index) * top_percent)
         prop_top_cutoff = prop_sorted.iloc[cutoff_idx][y_name]
         top_sim_props = sim_sorted[:cutoff_idx][y_name]
@@ -304,6 +304,7 @@ class SimilarityAnalysisBase:
         for s in [s for s in self.sim_cols if s in new_df.columns]:
             new_df[s] = np.random.uniform(0, 1, num_rows)
         return new_df
+
     def _uniform_similarities(self, base_df, corr_cutoff=False, prop="diff_homo"):
         """
         Parameters:
@@ -354,6 +355,10 @@ class SimilarityAnalysisBase:
         """
         Parameters:
         base_df (pd.DataFrame): DataFrame containing the sample pairs data with similarity metrics and properties.
+        prop (str, optional): The property column to use for correlation-based cutoff adjustments. Default is "diff_homo".
+        std_dev (float, optional): The standard deviation for the truncated normal distribution used to generate similarity values. Default is 0.5.
+        corr_cutoff (bool, optional): If True, similarity values are adjusted iteratively to ensure they remain below a dynamically calculated
+            correlation threshold based on the `prop` column. Default is False.
 
         Returns:
         pd.DataFrame: DataFrame with similarity metrics as rows and properties as columns, containing the KDE integral values.
@@ -383,10 +388,25 @@ class SimilarityAnalysisBase:
 
     def _get_sample_pairs_df(self, i, size, anal_percent=1, replace_sim=False, norm_std_dev=None):
         """
-        Parameters:
-        size (int): Number of documents to sample for each trial.
-        replace_sim (bool, optional):
+        Generates or retrieves a DataFrame of sampled document pairs for analysis, with optional similarity replacement.
 
+        Parameters:
+        i (int):
+            The trial number used to name and retrieve saved files.
+        size (int):
+            The number of documents to sample for each trial.
+        anal_percent (float, optional):
+            The percentage of the dataset to analyze. Default is 1 (100%).
+        replace_sim (str or bool, optional):
+            Method for replacing similarity values. Options include "uniform", "uniformCorr", "correlated",
+            "normal", "normalCorr", or "random". Default is False (no replacement).
+        norm_std_dev (float, optional):
+            The standard deviation for normal distribution replacement methods. Used when `replace_sim` is "normal"
+            or "normalCorr".
+
+        Returns:
+        pd.DataFrame:
+            A DataFrame containing the sampled similarity and property columns, with optional replacements applied.
         """
         comp_dir = self.data_dir / "random_sampling"
 
@@ -452,6 +472,42 @@ class SimilarityAnalysisBase:
     def plot_avg_df(self, avg_df, ylims=None, ax=None, std_values=None, return_plot=True, red_labels=True, 
                     upper_bound=None, lower_bound=None, soft_upper_bound=None, soft_lower_bound=None,
                     ratio_name=None, anal_name=None, main_plot_color = "blue"):
+        """
+        Plots average values from a DataFrame with optional standard deviation shading, bounds, and customized annotations.
+
+        Parameters:
+        avg_df (pd.DataFrame):
+            DataFrame containing average values to plot, indexed by similarity measures.
+        ylims (tuple, optional):
+            Tuple specifying the y-axis limits (lower, upper). Default is None.
+        ax (matplotlib.axes.Axes, optional):
+            Existing matplotlib Axes object to plot on. Default is None (creates a new Axes).
+        std_values (pd.DataFrame, optional):
+            DataFrame of standard deviation values for additional plotting. Default is None.
+        return_plot (bool, optional):
+            If True, returns the Axes object. Default is True.
+        red_labels (bool, optional):
+            If True, highlights similarity measures below the upper bound in red. Default is True.
+        upper_bound (float, optional):
+            Horizontal line indicating the upper bound. Default is None.
+        lower_bound (float, optional):
+            Horizontal line indicating the lower bound. Default is None.
+        soft_upper_bound (float, optional):
+            Horizontal line indicating a weak upper bound. Default is None.
+        soft_lower_bound (float, optional):
+            Horizontal line indicating a weak lower bound. Default is None.
+        ratio_name (str, optional):
+            Label for the y-axis to denote the metric being analyzed. Default is None.
+        anal_name (str, optional):
+            Title of the plot, typically describing the analysis. Default is None.
+        main_plot_color (str, optional):
+            Color for the primary plot elements. Default is "blue".
+
+        Returns:
+        matplotlib.axes.Axes or pd.DataFrame:
+            The plot's Axes object if `return_plot` is True, otherwise the modified DataFrame.
+        """
+
         if std_values is not None:
             
             sort_value = (std_values.mean(axis=1) + std_values.std(axis=1)).sort_values()
@@ -506,14 +562,24 @@ class SimilarityAnalysisBase:
     def random_sampling(self, size, num_trials=30, plot=True, replace_sim=None, method="kde", norm_std_dev=None, t_x=None,
                        **plotting_kwargs):
         """
-        Performs a random sampling analysis by sampling multiple datasets, applying KDE analysis, and aggregating results.
+        Performs random sampling analysis by sampling multiple datasets, applying analysis methods (e.g., KDE),
+        and aggregating the results.
 
         Parameters:
         size (int): Number of documents to sample for each trial.
-        num_trials (int, optional): Number of trials to run. Default is 30.
-        plot (bool, optional): If True, plots the results. Default is True.
+        num_trials (int, optional): Number of trials to perform. Default is 30.
+        plot (bool, optional): If True, plots the aggregated results. Default is True.
+        replace_sim (str, optional): Replacement strategy for similarity measures (e.g., "uniform", "normal"). Default is None.
+        method (str, optional): Analysis method to use ("kde", "nhr", or "ranking"). Default is "kde".
+        norm_std_dev (float, optional): Standard deviation for normal similarity replacement. Default is None.
+        t_x (float, optional): Intercept parameter for neighborhood ratios. Default is None.
+        **plotting_kwargs: Additional keyword arguments for plotting.
 
+        Returns:
+        pd.DataFrame or matplotlib.axes.Axes:
+            Aggregated DataFrame of average values for each trial. If `plot=True`, returns the Axes object.
         """
+
         avg_dfs = []
         comp_dir = self.data_dir / "random_sampling"
         ratio_name = "IntegralRatios" if method=="kde" else "NeighborhoodRatios" if method=="nhr" else "RankingRatios" if method=="ranking" else ""
@@ -562,14 +628,23 @@ class SimilarityAnalysisBase:
     def random_sampling_percentiles(self, size, num_trials=30, plot=True, replace_sim=None, ylims=None, ax=None,
                                    std_percentiles=None):
         """
-        Performs a random sampling analysis by sampling multiple datasets, applying KDE analysis, and aggregating results.
+        Performs random sampling analysis to calculate percentile divides for similarity measures and optionally plots the results.
 
         Parameters:
         size (int): Number of documents to sample for each trial.
-        num_trials (int, optional): Number of trials to run. Default is 30.
-        plot (bool, optional): If True, plots the results. Default is True.
+        num_trials (int, optional): Number of trials to perform. Default is 30.
+        plot (bool, optional): If True, plots the percentile divides. Default is True.
+        replace_sim (str, optional): Replacement strategy for similarity measures (e.g., "uniform", "normal"). Default is None.
+        ylims (tuple, optional): Y-axis limits for the plot. Default is None.
+        ax (matplotlib.axes.Axes, optional): Axes object for plotting. If None, a new plot is created. Default is None.
+        std_percentiles (pd.Series, optional): Pre-calculated percentiles to overlay on the plot. Default is None.
 
+        Returns:
+        pd.DataFrame or tuple:
+            DataFrame of calculated percentile divides for each similarity measure.
+            If `plot=True`, returns a tuple (DataFrame, Axes object).
         """
+
         divides_df = pd.DataFrame(index=self.sim_cols, columns=[i for i in range(num_trials)])
         comp_dir = self.data_dir / "random_sampling"
 
@@ -615,9 +690,9 @@ class SimilarityAnalysisRand(SimilarityAnalysisBase):
         """
 
         Parameters:
-        anal_percent (float):
-        top_percent (float):
-        total_docs (int):
+        anal_percent (float): Top percent of data to use in the analysis
+        top_percent (float): Top percent of the data to use to calculate the top area ratio
+        total_docs (int): Total number of molecule pair data entries
         verbose (int): Verbosity level (0 = silent, 1 = minimal output, 2 = detailed output).
         elec_props (list): List of electronic properties to calculate differences.
         sim_metrics (dict): Dictionary of similarity metrics to calculate.
@@ -669,10 +744,22 @@ class SimilarityAnalysisRand(SimilarityAnalysisBase):
         return orig_df
 
     def _get_total_docs(self):
+        """
+        Calculates the total number of molecular pairs using the combination formula.
+
+        Returns:
+        int: Total number of molecular pairs.
+        """
         num_mols = self.molecules_df.shape[0]
         return comb(num_mols, 2)
 
     def _rand_id(self):
+        """
+        Generates a random unique pair identifier for molecule IDs.
+
+        Returns:
+        str: Pair identifier in the format 'id1__id2', where id1 and id2 are sorted.
+        """
         id_1 = id_2 = random.choice(self.all_ids)
         while id_1 == id_2:
             id_2 = random.choice(self.all_ids)
@@ -680,6 +767,16 @@ class SimilarityAnalysisRand(SimilarityAnalysisBase):
 
     def _get_pair_data(self, pair_id, elec_props=None, fp_dict=None, sim_metrics=None, **kwargs):
         """
+        Generates data for a given pair of molecules by calculating property differences and similarity metrics.
+
+        Parameters:
+        pair_id (str): Unique identifier for the molecule pair in the format 'id1__id2'.
+        elec_props (list, optional): List of electronic properties to compute differences for. Default is None.
+        fp_dict (dict, optional): Dictionary of fingerprints for each molecule. Default is None.
+        sim_metrics (dict, optional): Dictionary of similarity metrics and their calculation methods. Default is None.
+
+        Returns:
+        dict: Dictionary containing pair data, including property differences and similarity scores.
         """
         id_1, id_2 = pair_id.split("__")
         id_1_dict = self.molecules_df.loc[id_1].to_dict()
@@ -706,6 +803,13 @@ class SimilarityAnalysisRand(SimilarityAnalysisBase):
 
     def _random_sample(self, size=1000, **kwargs):
         """
+        Generates a random sample of molecule pairs and their associated data.
+
+        Parameters:
+        size (int, optional): Number of random pairs to generate. Default is 1000.
+
+        Returns:
+        pd.DataFrame: DataFrame containing data for the sampled pairs, indexed by pair ID.
         """
         ids = set([self._rand_id() for _ in range(size)])
         while len(ids) < size:
@@ -727,9 +831,9 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
         """
 
         Parameters:
-        anal_percent (float):
-        top_percent (float):
-        total_docs (int):
+        anal_percent (float): Top percent of data to use in the analysis
+        top_percent (float): Top percent of the data to use to calculate the top area ratio
+        total_docs (int): Total number of molecule pair data entries
         verbose (int): Verbosity level (0 = silent, 1 = minimal output, 2 = detailed output).
         elec_props (list): List of electronic properties to calculate differences.
         sim_metrics (dict): Dictionary of similarity metrics to calculate.
@@ -747,6 +851,12 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
         self.mongo_coll = mongo_coll
 
     def _get_total_docs(self):
+        """
+        Fetches the total number of documents from a MongoDB collection.
+
+        Returns:
+        int: Total number of documents in the specified collection.
+        """
         if self.total_docs:
             return self.total_docs
         print("Starting total number of docs query...") if self.verbose else None
@@ -789,6 +899,7 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
         Parameters:
         x (str, optional): Field to sort by in descending order. Default is None.
         y (str, optional): Additional field to include in the projection. Default is None.
+        anal_percent (float, optional): Top percent of data to use in the analysis. Default is None.
         size (int, optional): Number of documents to sample. Default is 1000.
 
         Returns:
@@ -812,18 +923,19 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
     def _batch_kde(self, sim=None, prop=None, batch_size=10000, zeros_cutoff=1e-10, divide=None,
                    **kwargs):
         """
-        Perform batch Kernel Density Estimation (KDE) analysis on a dataset stored in a
-        MongoDB collection and return percent of the top integrated KDE area.
+        Performs batch Kernel Density Estimation (KDE) analysis on a dataset stored in a MongoDB collection
+        and returns the percent of the top integrated KDE area.
 
         Parameters:
         sim (str): Similarity metric to use for KDE analysis. Default is self.default_sim.
         prop (str): Property to analyze alongside the similarity metric. Default is self.default_prop.
         batch_size (int): Number of documents to process in each batch. Default is 10,000.
         zeros_cutoff (float): Threshold below which the KDE percent is considered zero. Default is 1e-10.
+        divide (float, optional): Minimum value for KDE top area. Default is None.
 
         Returns:
         float: Percent of the KDE top area.
-        (float, pd.DataFrame): If return_all_d is True, returns a tuple with the average percent and the results.
+        (pd.DataFrame, float): If return_all_d is True, returns a tuple with the average percent and the results.
         """
 
         # Set up batch analysis
@@ -883,6 +995,21 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
     def db_kde(self, sim=None, prop=None, divide=None, batch_size=None,
                return_kernel=False, replace=False, set_in_progress=False, **kwargs):
         """
+        Performs Kernel Density Estimation (KDE) for a specific similarity metric and property,
+        using either batch processing or the full dataset, and saves the result.
+
+        Parameters:
+        sim (str): Similarity metric to use for KDE analysis. Default is self.default_sim.
+        prop (str): Property to analyze alongside the similarity metric. Default is self.default_prop.
+        divide (float, optional): Minimum value for KDE top area. Default is None.
+        batch_size (int, optional): Batch size for processing documents. Default is None.
+        return_kernel (bool): Whether to return kernel results. Default is False.
+        replace (bool): Whether to replace existing results. Default is False.
+        set_in_progress (bool): Whether to mark the calculation as in progress. Default is False.
+
+        Returns:
+        float: The KDE top area percentage.
+        (pd.DataFrame, float): If return_kernel is True, returns a tuple with the average percent and the results.
         """
         sim = sim or self.default_sim
         prop = prop or self.default_prop
@@ -928,13 +1055,49 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
         return (perc, kernel_results) if return_kernel else perc
 
     def kde_all_prop(self, sim, **kwargs):
+        """
+        Performs KDE analysis for all properties using the specified similarity metric.
+
+        Parameters:
+        sim (str): Similarity metric to use for KDE analysis.
+        kwargs: Additional keyword arguments passed to the db_kde function.
+
+        Returns:
+        pd.DataFrame: DataFrame containing results for all properties.
+        """
         for y in self.prop_cols:
             avg_perc = self.db_kde(sim=sim, prop=y, divide=self.get_divide(sim), **kwargs)
             print(f"--> KDE Top Area for {sim} and {y}: {avg_perc}") if self.verbose else None
 
         return pd.read_csv(self.batch_kde_file)
 
+    def kde_all(self, **kwargs):
+        """
+        Performs KDE analysis for all properties and similarity measures.
+
+        Parameters:
+        kwargs: Additional keyword arguments passed to the db_kde function.
+
+        Returns:
+        pd.DataFrame: DataFrame containing results for all properties.
+        """
+        for sim in self.sim_cols:
+            self.kde_all_prop(sim=sim, **kwargs)
+        return pd.read_csv(self.batch_kde_file)
+
     def get_divide(self, sim_metric, replace=False, set_in_progress=False):
+        """
+        Fetches or calculates the divide value for a specific similarity metric.
+
+        Parameters:
+        sim_metric (str): Similarity metric for which to fetch or calculate the divide value.
+        replace (bool): Whether to replace existing values. Default is False.
+        set_in_progress (bool): Whether to mark the calculation as in progress. Default is False.
+
+        Returns:
+        float: The divide value.
+        """
+
         # Establish area DF
         area_df = pd.read_csv(self.divides_file, index_col=0) if os.path.isfile(self.divides_file) else pd.DataFrame(
             index=self.sim_cols, columns=["divide"])
@@ -959,6 +1122,15 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
         return divide
 
     def gen_all_divides(self, replace=False):
+        """
+        Generates divide values for all similarity metrics.
+
+        Parameters:
+        replace (bool): Whether to replace existing values. Default is False.
+
+        Returns:
+        pd.DataFrame: DataFrame containing the divide values for all similarity metrics.
+        """
         for x in self.sim_cols:
             self.get_divide(x, replace=replace)
         return pd.read_csv(self.divides_file)
