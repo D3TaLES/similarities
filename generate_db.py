@@ -8,7 +8,7 @@ from rdkit import Chem
 import multiprocessing
 from functools import partial
 from pymongo import MongoClient
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from rdkit.DataStructs.cDataStructs import ExplicitBitVect
 
 from similarities.settings import *
