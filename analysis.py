@@ -503,7 +503,7 @@ class SimilarityAnalysisBase:
             return ax
         return avg_df
 
-    def random_sampling(self, size, num_trials=30, plot=True, replace_sim=None, method="kde", norm_std_dev=None, t_x=None,
+    def random_sampling(self, size, num_trials=30, plot=True, replace_sim=None, method="kde", norm_std_dev=None, t_x=None, bw_method=1,
                        **plotting_kwargs):
         """
         Performs a random sampling analysis by sampling multiple datasets, applying KDE analysis, and aggregating results.
@@ -527,8 +527,8 @@ class SimilarityAnalysisBase:
             area_df_csv = comp_dir / f"{ratio_name}_{anal_name}_Rand{i:02d}.csv"
             if not os.path.isfile(area_df_csv) or self.replace_files:
                 _pairs_df = self._get_sample_pairs_df(i=i, size=size, replace_sim=replace_sim, norm_std_dev=norm_std_dev)
-                if method == "kde":
-                    _results_df = self._generate_all_kde_df(_pairs_df)
+                if method == "kde" or method == "kde_bw":
+                    _results_df = self._generate_all_kde_df(_pairs_df, bw_method=bw_method)
                 elif method == "nhr":
                     _results_df = self._generate_all_nhr_df(_pairs_df, t_x=t_x)
                 elif method == "ranking":
@@ -740,7 +740,8 @@ class SimilarityPairsDBAnalysis(SimilarityAnalysisBase):
 
         """
         self.total_docs = total_docs
-        super().__init__(anal_percent=anal_percent, top_percent=top_percent, verbose=verbose, anal_name=mongo_coll,
+        kwargs.update(dict(anal_name=kwargs.get("anal_name", mongo_coll)))
+        super().__init__(anal_percent=anal_percent, top_percent=top_percent, verbose=verbose,
                          elec_props=elec_props, sim_metrics=sim_metrics, fp_gens=fp_gens, **kwargs)
         self.mongo_uri = mongo_uri
         self.mongo_db = mongo_db
