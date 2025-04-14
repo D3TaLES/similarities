@@ -50,3 +50,9 @@ SIM_METRICS = {
     # "Russel": rdk_d.RusselSimilarity,  # range depends on number of set bits
     "Kulczynski": rdk_d.KulczynskiSimilarity,
 }
+# Similarity Database
+try:
+    DB_COLL = MongoClient("mongodb://10.33.30.17:23771/random")["random"]["mol_pairs"]
+except Exception as e:
+    warnings.warn("Databaes connection error: ", e)
+
